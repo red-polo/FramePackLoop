@@ -109,6 +109,9 @@ def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_sec
     
 @torch.no_grad()
 def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+    if stream.input_queue.top() == 'end':
+        stream.output_queue.push(('end', None))
+        return
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
     total_latent_sections = total_second_length

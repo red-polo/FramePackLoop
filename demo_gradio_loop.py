@@ -101,6 +101,9 @@ os.makedirs(outputs_folder, exist_ok=True)
 
 def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
     for generation_count_index in range(generation_count):
+        if stream.input_queue.top() == 'end':
+            stream.output_queue.push(('end', None))
+            break
         if generation_count != 1:
             seed = random.randint(0, 2**32 - 1)
         stream.output_queue.push(('generation count', f"Generation index:{generation_count_index + 1}"))

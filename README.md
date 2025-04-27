@@ -96,6 +96,8 @@ FramePackLoopでは、本家FramePackに対して以下のパラメータが変�
 python demo_gradio_loop.py
 ```
 
+FramePackを既にインストール済みの方は、demo_gradio_loop.pyを本家のdemo_gradio.pyのあるフォルダにおいていただき、上のコマンドを実行すれば起動できます。
+
 ## 少しだけ技術解説
 
 本ソフトでは「接続動画」の生成にフォーカスしています。  

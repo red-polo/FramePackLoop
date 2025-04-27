@@ -1,6 +1,7 @@
 from diffusers_helper.hf_login import login
 
 import os
+import random
 
 os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
 
@@ -98,7 +99,14 @@ stream = AsyncStream()
 outputs_folder = './outputs/'
 os.makedirs(outputs_folder, exist_ok=True)
 
-
+def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+    for generation_count_index in range(generation_count):
+        if generation_count != 1:
+            seed = random.randint(0, 2**32 - 1)
+        stream.output_queue.push(('generation count', f"Generation index:{generation_count_index + 1}"))
+        worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
+    stream.output_queue.push(('end', None))
+    
 @torch.no_grad()
 def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
@@ -148,7 +156,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         height, width = find_nearest_bucket(H, W, resolution=640)
         input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
 
-        Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}.png'))
+        Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}_{seed}.png'))
 
         input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
         input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
@@ -250,6 +258,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
                 percentage = int(100.0 * current_step / steps)
                 hint = f'Sampling {current_step}/{steps}'
                 desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, Video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30) :.2f} seconds (FPS-30). The video is being extended now ...'
+                
                 stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
                 return
 
@@ -309,7 +318,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
             if not high_vram:
                 unload_complete_models()
 
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}.mp4')
+            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}.mp4')
 
             save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
 
@@ -426,7 +435,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
                 current_step = d['i'] + 1
                 percentage = int(100.0 * current_step / steps)
                 hint = f'Sampling {current_step}/{steps}'
-                desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, Video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30) :.2f} seconds (FPS-30). The video is being extended now ...'
+                desc = f'Now making connection video.'
                 stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
                 return
 
@@ -488,7 +497,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
             if not high_vram:
                 unload_complete_models()
 
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{post_total_generated_latent_frames}_post.mp4')
+            output_filename = os.path.join(outputs_folder, f'{job_id}_{post_total_generated_latent_frames}_{seed}_post.mp4')
 
             save_bcthw_as_mp4(post_history_pixels, output_filename, fps=30, crf=mp4_crf)
 
@@ -519,6 +528,10 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         MAX = all_latent_section + 2
         pixel_map = dict()
         for i in range(MAX):
+            if stream.input_queue.top() == 'end':
+                stream.output_queue.push(('end', None))
+                return
+
             pixel_map_key = i % all_latent_section
             #print(i)
             latent_index = (all_latent_section-1 - pixel_map_key)
@@ -554,13 +567,12 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         # ループ１素材だけを取るために前１セクションフレーム-3と、後ろ１セクションフレームを削除
         final_history_pixels = final_history_pixels[:,:,latent_window_size * 4 -3:,:,:]
         final_history_pixels = final_history_pixels[:,:,:-latent_window_size* 4 ,:,:]
-        output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_1loop_{loop_num}.mp4')
+        output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}_1loop_{loop_num}.mp4')
         save_bcthw_as_mp4(final_history_pixels, output_filename, fps=30, crf=mp4_crf)
         final_history_pixels = final_history_pixels.repeat(1,1,loop_num,1,1)
-        output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_loop_{loop_num}.mp4')
+        output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}_loop_{loop_num}.mp4')
 
         save_bcthw_as_mp4(final_history_pixels, output_filename, fps=30, crf=mp4_crf)
-        print(output_filename)
         stream.output_queue.push(('file', output_filename))
     except:
         traceback.print_exc()
@@ -569,20 +581,18 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
             unload_complete_models(
                 text_encoder, text_encoder_2, image_encoder, vae, transformer
             )
-
-    stream.output_queue.push(('end', None))
     return
 
 
-def process(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+def process(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
     global stream
     assert input_image is not None, 'No input image!'
 
-    yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True)
+    yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True), ''
 
     stream = AsyncStream()
 
-    async_run(worker, input_image, prompt, n_prompt, seed, total_second_length,connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
+    async_run(loop_worker, input_image, prompt, n_prompt, generation_count, seed, total_second_length,connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
 
     output_filename = None
 
@@ -591,14 +601,18 @@ def process(input_image, prompt, n_prompt, seed, total_second_length, connection
 
         if flag == 'file':
             output_filename = data
-            yield output_filename, gr.update(), gr.update(), gr.update(), gr.update(interactive=False), gr.update(interactive=True)
+            yield output_filename, gr.update(), gr.update(), gr.update(), gr.update(interactive=False), gr.update(interactive=True), gr.update()
 
         if flag == 'progress':
             preview, desc, html = data
-            yield gr.update(), gr.update(visible=True, value=preview), desc, html, gr.update(interactive=False), gr.update(interactive=True)
+            yield gr.update(), gr.update(visible=True, value=preview), desc, html, gr.update(interactive=False), gr.update(interactive=True), gr.update()
+        
+        if flag == 'generation count':
+            generation_count_index = data
+            yield gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), generation_count_index
 
         if flag == 'end':
-            yield output_filename, gr.update(visible=False), gr.update(), '', gr.update(interactive=True), gr.update(interactive=False)
+            yield output_filename, gr.update(visible=False), '', '', gr.update(interactive=True), gr.update(interactive=False), ''
             break
 
 
@@ -632,7 +646,10 @@ with block:
                 use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
 
                 n_prompt = gr.Textbox(label="Negative Prompt", value="", visible=False)  # Not used
-                seed = gr.Number(label="Seed", value=31337, precision=0)
+                
+                generation_count = gr.Slider(label="Generation Count", minimum=1, maximum=500, value=1, step=1,
+                                                  info='生成回数です。この値が2以上の場合、Seedはランダムな値が使用されます。')
+                seed = gr.Number(label="Seed", value=31337, precision=0, info='この値はGeneration Countが1の時のみ有効です。')
 
                 total_second_length = gr.Slider(label="Main Video Length (Section)", minimum=1, maximum=120, value=1, step=1)
                 connection_second_length = gr.Slider(label="Connection Video Length (Section)", minimum=1, maximum=120, value=1, step=1)
@@ -657,8 +674,10 @@ with block:
             gr.Markdown('Note that the ending actions will be generated before the starting actions due to the inverted sampling. If the starting action is not in the video, you just need to wait, and it will be generated later.')
             progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
             progress_bar = gr.HTML('', elem_classes='no-generating-animation')
-    ips = [input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf]
-    start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button])
+            progress_gcounter = gr.Markdown('', elem_classes='no-generating-animation')
+
+    ips = [input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf]
+    start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button, progress_gcounter])
     end_button.click(fn=end_process)
 
 

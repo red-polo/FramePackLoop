@@ -36,10 +36,18 @@ FramePackLoopでは、以下の手順でループ動画が生成されます。
 
 FramePackLoopでは、本家FramePackに対して以下のパラメータが変更・追加されています。
 
-![FramePackLoopParameter](images/image.png)
+![FramePackLoopParameter](images/image3.jpg)
 
 - **Main Video Length**  
   メイン動画のセクション数です。
+
+- **Progress Option**  
+経過動画のプレビューとファイルの保存方式です。 
+  - **All Progress File Output**: すべての経過ファイルを出力します。  
+  - **Reduce Progress File Output**: 途中経過のファイルを同じ名前で上書き保存し、出力ファイル数を減らします。  
+  outputフォルダに system_preview.mp4 というファイルが生成され、プレビュー用に使用されます。  
+  ※動画生成中はこのファイルを開かないでください。  
+  - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。。                  
 
 - **Connection Video Length**  
   接続動画のセクション数です。メイン動画のセクション数と同じにするのが理想ですが、小さくても問題ありません。

@@ -99,7 +99,7 @@ stream = AsyncStream()
 outputs_folder = './outputs/'
 os.makedirs(outputs_folder, exist_ok=True)
 
-def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview):
     for generation_count_index in range(generation_count):
         if stream.input_queue.top() == 'end':
             stream.output_queue.push(('end', None))
@@ -107,14 +107,18 @@ def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_sec
         if generation_count != 1:
             seed = random.randint(0, 2**32 - 1)
         stream.output_queue.push(('generation count', f"Generation index:{generation_count_index + 1}"))
-        worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
+        worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview)
     stream.output_queue.push(('end', None))
     
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview):
     if stream.input_queue.top() == 'end':
         stream.output_queue.push(('end', None))
         return
+    
+    if reduce_file_output:
+        tmp_filename = "system_preview.mp4"
+
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
     total_latent_sections = total_second_length
@@ -162,7 +166,8 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         height, width = find_nearest_bucket(H, W, resolution=640)
         input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
 
-        Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}_{seed}.png'))
+        if not without_preview:
+            Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}_{seed}.png'))
 
         input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
         input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
@@ -306,31 +311,35 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
             total_generated_latent_frames += int(generated_latents.shape[2])
             history_latents = torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
 
-            if not high_vram:
-                offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
-                load_model_as_complete(vae, target_device=gpu)
-
             real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
+            
+            if not without_preview:
+                if not high_vram:
+                    offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
+                    load_model_as_complete(vae, target_device=gpu)
 
-            if history_pixels is None:
-                history_pixels = vae_decode(real_history_latents, vae).cpu()
-            else:
-                section_latent_frames = (latent_window_size * 2)
-                overlapped_frames = latent_window_size * 4 - 3
+                if history_pixels is None:
+                    history_pixels = vae_decode(real_history_latents, vae).cpu()
+                else:
+                    section_latent_frames = (latent_window_size * 2)
+                    overlapped_frames = latent_window_size * 4 - 3
 
-                current_pixels = vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
-                history_pixels = soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
-                
-            if not high_vram:
-                unload_complete_models()
+                    current_pixels = vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
+                    history_pixels = soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
+                    
+                if not high_vram:
+                    unload_complete_models()
 
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}.mp4')
+                if reduce_file_output:
+                    output_filename = os.path.join(outputs_folder, tmp_filename)
+                else:    
+                    output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}.mp4')
 
-            save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
+                save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
 
-            print(f'Decoded. Current latent shape {real_history_latents.shape}; pixel shape {history_pixels.shape}')
+                print(f'Decoded. Current latent shape {real_history_latents.shape}; pixel shape {history_pixels.shape}')
 
-            stream.output_queue.push(('file', output_filename))
+                stream.output_queue.push(('file', output_filename))
 
             if is_last_section:
                 break
@@ -482,34 +491,40 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
 
             post_total_generated_latent_frames += int(generated_latents.shape[2])
             post_history_latents = torch.cat([generated_latents.to(post_history_latents), post_history_latents], dim=2)
-
-            if not high_vram:
-                offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
-                load_model_as_complete(vae, target_device=gpu)
-
+            
             post_real_history_latents = post_history_latents[:, :, :post_total_generated_latent_frames, :, :]
 
-            if post_history_pixels is None:
-                post_history_pixels = vae_decode(post_real_history_latents, vae).cpu()
-            else:
-                section_latent_frames = (latent_window_size * 2) if is_last_section else (latent_window_size * 2)
-                overlapped_frames = latent_window_size * 4 - 3
 
-                current_pixels = vae_decode(post_real_history_latents[:, :, :section_latent_frames], vae).cpu()
-                #print(current_pixels.shape)
-                #print(post_history_pixels.shape)
-                post_history_pixels = soft_append_bcthw(current_pixels, post_history_pixels, overlapped_frames)
-                
-            if not high_vram:
-                unload_complete_models()
+            if not without_preview:
+                if not high_vram:
+                    offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
+                    load_model_as_complete(vae, target_device=gpu)
 
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{post_total_generated_latent_frames}_{seed}_post.mp4')
+ 
+                if post_history_pixels is None:
+                    post_history_pixels = vae_decode(post_real_history_latents, vae).cpu()
+                else:
+                    section_latent_frames = (latent_window_size * 2) if is_last_section else (latent_window_size * 2)
+                    overlapped_frames = latent_window_size * 4 - 3
 
-            save_bcthw_as_mp4(post_history_pixels, output_filename, fps=30, crf=mp4_crf)
+                    current_pixels = vae_decode(post_real_history_latents[:, :, :section_latent_frames], vae).cpu()
+                    #print(current_pixels.shape)
+                    #print(post_history_pixels.shape)
+                    post_history_pixels = soft_append_bcthw(current_pixels, post_history_pixels, overlapped_frames)
+                    
+                if not high_vram:
+                    unload_complete_models()
 
-            print(f'Decoded. Current latent shape {post_real_history_latents.shape}; pixel shape {post_history_pixels.shape}')
+                if reduce_file_output:
+                    output_filename = os.path.join(outputs_folder, tmp_filename)
+                else:    
+                    output_filename = os.path.join(outputs_folder, f'{job_id}_{post_total_generated_latent_frames}_{seed}_post.mp4')
 
-            stream.output_queue.push(('file', output_filename))
+                save_bcthw_as_mp4(post_history_pixels, output_filename, fps=30, crf=mp4_crf)
+
+                print(f'Decoded. Current latent shape {post_real_history_latents.shape}; pixel shape {post_history_pixels.shape}')
+
+                stream.output_queue.push(('file', output_filename))
 
             if is_last_section:
                 break
@@ -575,6 +590,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         final_history_pixels = final_history_pixels[:,:,:-latent_window_size* 4 ,:,:]
         output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}_1loop_{loop_num}.mp4')
         save_bcthw_as_mp4(final_history_pixels, output_filename, fps=30, crf=mp4_crf)
+        
         final_history_pixels = final_history_pixels.repeat(1,1,loop_num,1,1)
         output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}_loop_{loop_num}.mp4')
 
@@ -590,15 +606,31 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
     return
 
 
-def process(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+def process(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf,progress_preview_option):
     global stream
     assert input_image is not None, 'No input image!'
+    # 表示名と値のマッピング
+    options = {
+        "All Progress File Output": 1,
+        "Reduce Progress File Output": 2,
+        "Without Preview": 3
+    }
+
+    if options[progress_preview_option] == 1:
+        reduce_file_output = False
+        without_preview = False
+    elif options[progress_preview_option] == 2:
+        reduce_file_output = True
+        without_preview = False
+    elif options[progress_preview_option] == 3:
+        reduce_file_output = True
+        without_preview = True
 
     yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True), ''
 
     stream = AsyncStream()
 
-    async_run(loop_worker, input_image, prompt, n_prompt, generation_count, seed, total_second_length,connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
+    async_run(loop_worker, input_image, prompt, n_prompt, generation_count, seed, total_second_length,connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview)
 
     output_filename = None
 
@@ -655,6 +687,27 @@ with block:
                 
                 generation_count = gr.Slider(label="Generation Count", minimum=1, maximum=500, value=1, step=1,
                                                   info='生成回数です。この値が2以上の場合、Seedはランダムな値が使用されます。')
+                
+  
+        
+                progress_preview_option = gr.Radio(
+                    choices=["All Progress File Output",
+                            "Reduce Progress File Output",
+                            "Without Preview"],        # 表示用ラベルだけ渡す
+                    label="Progress Option",
+                    info = "経過動画のプレビューとファイルの保存方式を設定します。説明は下記。",
+                    value="Reduce Progress File Output"                        # ←ここでデフォルト選択！
+                )
+                gr.Markdown("""          
+                    - **All Progress File Output**: すべての経過ファイルを出力します。  
+                    - **Reduce Progress File Output**: 途中経過のファイルを同じ名前で上書き保存し、出力ファイル数を減らします。  
+                            outputフォルダに system_preview.mp4 というファイルが生成され、プレビュー用に使用されます。  
+                            ※動画生成中はこのファイルを開かないでください。  
+                    - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。。
+                    """,)
+                #reduce_file_output = gr.Checkbox(label='Reduce File Output', value=False, info='途中経過のファイルの出力を減らします.ただし、outputフォルダにsystem_progress_preview.mp4というファイルが生成されます。これは、プレビューに使用する動画ファイルです。動画生成中は開かないでください。')
+                #without_preview = gr.Checkbox(label='Without Preview', value=False, info='途中経過の動画のプレビューが出力されません。その代わりに、最終アウトプットの出力が早くなります。')
+
                 seed = gr.Number(label="Seed", value=31337, precision=0, info='この値はGeneration Countが1の時のみ有効です。')
 
                 total_second_length = gr.Slider(label="Main Video Length (Section)", minimum=1, maximum=120, value=1, step=1)
@@ -682,7 +735,7 @@ with block:
             progress_bar = gr.HTML('', elem_classes='no-generating-animation')
             progress_gcounter = gr.Markdown('', elem_classes='no-generating-animation')
 
-    ips = [input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf]
+    ips = [input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, progress_preview_option]
     start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button, progress_gcounter])
     end_button.click(fn=end_process)
 

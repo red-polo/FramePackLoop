@@ -36,18 +36,10 @@ FramePackLoopでは、以下の手順でループ動画が生成されます。
 
 FramePackLoopでは、本家FramePackに対して以下のパラメータが変更・追加されています。
 
-![FramePackLoopParameter](images/image3.jpg)
+![FramePackLoopParameter](images/image.png)
 
 - **Main Video Length**  
-  メイン動画のセクション数です。
-
-- **Progress Option**  
-経過動画のプレビューとファイルの保存方式です。 
-  - **All Progress File Output**: すべての経過ファイルを出力します。  
-  - **Reduce Progress File Output**: 途中経過のファイルを同じ名前で上書き保存し、出力ファイル数を減らします。  
-  outputフォルダに system_preview.mp4 というファイルが生成され、プレビュー用に使用されます。  
-  ※動画生成中はこのファイルを開かないでください。  
-  - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。。                  
+  メイン動画のセクション数です。   
 
 - **Connection Video Length**  
   接続動画のセクション数です。メイン動画のセクション数と同じにするのが理想ですが、小さくても問題ありません。
@@ -69,12 +61,20 @@ FramePackLoopでは、本家FramePackに対して以下のパラメータが変�
 ### 動画生成を繰り返したい人向けのパラメタ
 夜間などに動画生成を繰り返し実行したい方のために、動画生成を繰り返すパラメータを用意しました。
 
-![FramePackLoopParameter](images/image2.jpg)
+![FramePackLoopParameter](images/image3.jpg)
 
 - **Generation Count**  
 動画の生成回数を設定します。指定した回数だけ動画が生成されます。  
 **Generation Countが2以上の場合、Seedはランダムな値が使用されます。**  
 現在の生成回数は、プレビューの下に「Generation Index」として表示されます（カウントは1から始まります）。
+
+- **Progress Option**  
+経過動画のプレビューとファイルの保存方式です。 
+  - **All Progress File Output**: すべての経過ファイルを出力します。  
+  - **Reduce Progress File Output**: 途中経過のファイルを同じ名前で上書き保存し、出力ファイル数を減らします。  
+  outputフォルダに system_preview.mp4 というファイルが生成され、プレビュー用に使用されます。  
+  ※動画生成中はこのファイルを開かないでください。  
+  - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。               
 
 - **Seed**  
 動画生成時に使用されるSeed値です。  

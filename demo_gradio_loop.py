@@ -3,7 +3,9 @@ from diffusers_helper.hf_login import login
 import os
 import random
 
-os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
+hf_home = os.environ.get('HF_HOME')
+if hf_home is None:
+    os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
 
 import gradio as gr
 import torch

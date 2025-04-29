@@ -104,7 +104,33 @@ FramePackLoopでは、本家FramePackに対して以下のパラメータが変�
 python demo_gradio_loop.py
 ```
 
-FramePackを既にインストール済みの方は、demo_gradio_loop.pyを本家のdemo_gradio.pyのあるフォルダにおいていただき、上のコマンドを実行すれば起動できます。
+FramePackを既にインストール済みの方は、demo_gradio_loop.pyを本家のdemo_gradio.pyのあるフォルダにおいていただき、上のコマンドを実行すれば起動できます。  
+
+FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動作確認しました。
+コピーして使用される方はここまでのアップデートをお願いします。
+
+### 限定的なパッケージサポート
+
+限定的なサポートとなりますが、FramePackのWindowsパッケージをご利用の方向けに、簡単にFramePackLoopを追加できる追加パッケージを用意しました。  
+※FramePackのWindows版がインストールされていることが前提となります。
+
+オリジナルの実装に依存した限定的なサポートとなりますので将来的にサポートできなくなる可能性がある点ごご理解ください。
+
+
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows/run_loop.zip)
+
+
+ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
+
+![FramePackLoopParameter](images/image4.jpg)
+
+次に、run_loopフォルダ内のrun_loop.batを実行すると、FramePackLoopが起動します。
+出力ファイルは、run_loopフォルダ内のoutputフォルダに保存されます。
+
+![FramePackLoopParameter](images/image5.jpg)
+
+アンインストールする際は、run_loopフォルダを削除してください。
+
 
 ## 少しだけ技術解説
 

@@ -109,16 +109,16 @@ FramePackを既にインストール済みの方は、demo_gradio_loop.pyを本�
 FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動作確認しました。
 コピーして使用される方はここまでのアップデートをお願いします。
 
-### 限定的なパッケージサポート
+### 限定的なWindowsパッケージサポート
 
 限定的なサポートとなりますが、FramePackのWindowsパッケージをご利用の方向けに、簡単にFramePackLoopを追加できる追加パッケージを用意しました。  
 ※FramePackのWindows版がインストールされていることが前提となります。
 
 オリジナルの実装に依存した限定的なサポートとなりますので将来的にサポートできなくなる可能性がある点ごご理解ください。  
-また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合でもサポートはできかねますので、あらかじめご了承ください。
+また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/Connect/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -128,7 +128,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 次に、run_loopフォルダ内のrun_loop.batを実行すると、FramePackLoopが起動します。
 出力ファイルは、run_loopフォルダ内のoutputフォルダに保存されます。
 
-![FramePackLoopParameter](images/image5.jpg)
+![FramePackLoopParameter](images/image8.jpg)
 
 アンインストールする際は、run_loopフォルダを削除してください。
 
@@ -152,14 +152,99 @@ FramePackにはもともと未来情報を付与する仕組みがありまし�
 また、FramePackの元実装にあった「セクション動画のオーバーラッピング」も、滑らかに動画をつなげる上で有効に感じられました。
 
 
+# FramePackConnect（beta）
 
-## 今後の予定
+**FramePackConnect** は、lllyasviel氏の **lllyasviel/FramePack** をベースに、動画間をスムーズに補完する機能を提供するソフトウェアです。
+
+動画間の補完は動画作成で長尺の動画を作成する際に役立つのはもちろん、ゲーム作成においてループ素材を滑らかにつなげる際の素材等にも有用です。
+
+本機能はFramePackの基本機能を応用した実験的な実装であり、将来的に使用できなくなる可能性がある点をあらかじめご理解ください。
+
+## FramePackConnectの簡単な使い方
+![FramePackConnectUI](images/image6.jpg)
+
+FramePackで作成した結合したい動画を２つ用意します。  
+動画は以下の条件を満たす必要があります。
+* １秒以上であること。３秒以上が望ましいです。
+* FramePackで作成された、同じ画面の大きさの動画であること。
+
+先頭の動画を左側HeadVideoにアプロードしてください。
+末尾の動画を右側TailVideoにアップロードしてください。
+
+結合する部分のPromptを入れ、StartGenerationボタンを押すと生成が開始されます。  
+outputフォルダに結合された動画のファイルが出力されます。
+
+※元の動画は殆どの部分が維持されますが、動画をつなげる過程で多少変わります。
+
+## パラメータの説明
+
+FramePackConnectでは、FramePackに対して以下のパラメータが変更・追加されています。
+
+![FramePackConnectParameter](images/image7.jpg)
+
+- **Connect Video Length**  
+  補完のために生成する動画のセクション数です。  
+
+### 動画生成を繰り返したい人向けのパラメタ
+FramePackLoopと同様です。
+
+## 出力ファイル
+
+`output` フォルダに以下のファイルが出力されます。
+
+- `XXXX_{Seed}_connect.mp4`  
+  - ２つの動画が補完された動画です。
+
+
+## インストールと実行方法
+
+インストール方法は本家FramePackと同様です。  
+環境構築後、以下のコマンドを実行してください。
+
+```bash
+python demo_gradio_connect.py
+```
+
+FramePackを既にインストール済みの方は、demo_gradio_connect.pyを本家のdemo_gradio.pyのあるフォルダにおいていただき、上のコマンドを実行すれば起動できます。  
+
+FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動作確認しました。
+コピーして使用される方はここまでのアップデートをお願いします。
+
+## 制限事項
+・後ろの動画が３秒以下の場合、動画の最後が数フレーム切れる場合があります。
+・処理経過のファイルやプレビューは表示されません。
+
+### 限定的なWindowsパッケージサポート
+
+限定的なサポートとなりますが、FramePackのWindowsパッケージをご利用の方向けに、簡単にFramePackConnectを追加できる追加パッケージを用意しました。  
+※FramePackのWindows版がインストールされていることが前提となります。
+
+オリジナルの実装に依存した限定的なサポートとなりますので将来的にサポートできなくなる可能性がある点ごご理解ください。  
+また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
+
+
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/Connect/run_loop.zip)
+
+
+ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
+
+![FramePackLoopParameter](images/image4.jpg)
+
+次に、run_loopフォルダ内のrun_connect.batを実行すると、FramePackConnectが起動します。
+出力ファイルは、run_loopフォルダ内のoutputフォルダに保存されます。
+
+![FramePackLoopParameter](images/image8.jpg)
+
+アンインストールする際は、run_loopフォルダを削除してください。
+
+
+# 今後の予定
 
 将来的にLoRA対応やキーフレーム対応を行う可能性もありますが、  
-本ソフトウェアの開発動機は「過去・未来フレームの同時参照の検証」であるため、現時点では対応は未定です。
+現時点では対応は未定です。
 
 
-## 謝辞
+# 謝辞
 
 ありがとう、lllyasviel！
 

@@ -563,10 +563,10 @@ with block:
     with gr.Row():
 
         with gr.Column():
-            head_video = gr.Video(label="Head VideoHead Video", autoplay=True, show_share_button=False, height=512, loop=True)
+            head_video = gr.Video(label="Head Video", autoplay=True, show_share_button=False, height=512, loop=True)
     
         with gr.Column():
-            tail_video = gr.Video(label="Tail VideoHead Video", autoplay=True, show_share_button=False, height=512, loop=True)
+            tail_video = gr.Video(label="Tail Video", autoplay=True, show_share_button=False, height=512, loop=True)
     with gr.Row():
         with gr.Column():
             prompt = gr.Textbox(label="Prompt", value='')

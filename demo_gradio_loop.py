@@ -30,6 +30,16 @@ from transformers import SiglipImageProcessor, SiglipVisionModel
 from diffusers_helper.clip_vision import hf_clip_vision_encode
 from diffusers_helper.bucket_tools import find_nearest_bucket
 
+import torchvision
+
+def save_bcthw_as_png(x, output_filename):
+    # UIと合わせる
+    os.makedirs(os.path.dirname(os.path.abspath(os.path.realpath(output_filename))), exist_ok=True)
+    x = torch.clamp(x.float(), 0, 1) * 255
+    x = x.detach().cpu().to(torch.uint8)
+    x = einops.rearrange(x, 'b c t h w -> c (b h) (t w)')
+    torchvision.io.write_png(x, output_filename)
+    return output_filename
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--share', action='store_true')
@@ -113,7 +123,7 @@ def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_sec
     stream.output_queue.push(('end', None))
     
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview):
+def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length, padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview):
     if stream.input_queue.top() == 'end':
         stream.output_queue.push(('end', None))
         return
@@ -216,7 +226,9 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         total_generated_latent_frames = 0
 
         
-        latent_paddings = [i + padding_second_length for i in reversed(range(total_latent_sections))]
+        latent_paddings = [i for i in reversed(range(total_latent_sections))]
+
+        
 
         if total_latent_sections > 4:
             # In theory the latent_paddings should follow the above sequence, but it seems that duplicating some
@@ -228,8 +240,10 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         last_frame = total_second_length * 30
         for latent_padding in latent_paddings:
             is_last_section = latent_padding == 0
-            latent_padding_size = latent_padding * latent_window_size
+            latent_padding_init_size = int(padding_second_length * latent_window_size)
 
+            latent_padding_size = (latent_padding * latent_window_size) + latent_padding_init_size
+            print(latent_padding_size)
             if stream.input_queue.top() == 'end':
                 stream.output_queue.push(('end', None))
                 return
@@ -530,7 +544,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
 
             if is_last_section:
                 break
-        
+            
 
         #1ループ作成
         all_latent_section = total_latent_sections + connection_latent_sections
@@ -541,15 +555,23 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
         #print(history_latents.shape)
         connection_hisotry_latents = post_real_history_latents[:,:,:latent_window_size*connection_latent_sections,:,:]
         main_history_latents = real_history_latents[:,:,:latent_window_size*total_latent_sections,:,:]
+        
+
+
         final_latents = torch.cat([connection_hisotry_latents[:,:,-latent_window_size:,:,:],
                                    main_history_latents,
                                    connection_hisotry_latents,
                                    main_history_latents[:,:,-latent_window_size:,:,:]],dim=2)
+        to_pixcel_latents = torch.cat([main_history_latents,
+                                   connection_hisotry_latents],dim=2)
+        to_pixcel_latents_png = vae_decode_fake(to_pixcel_latents)
+        save_bcthw_as_png(to_pixcel_latents_png, "test.png")
         #final_latents = final_latents.repeat(1,1,loop_num,1,1)
         #print(final_latents.shape)
         final_history_pixels = None
         MAX = all_latent_section + 2
         pixel_map = dict()
+
         for i in range(MAX):
             if stream.input_queue.top() == 'end':
                 stream.output_queue.push(('end', None))
@@ -587,9 +609,10 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
             
 
         
-        # ループ１素材だけを取るために前１セクションフレーム-3と、後ろ１セクションフレームを削除
-        final_history_pixels = final_history_pixels[:,:,latent_window_size * 4 -3:,:,:]
-        final_history_pixels = final_history_pixels[:,:,:-latent_window_size* 4 ,:,:]
+        # ループ１素材だけを取るために前１セクションフレームと、後ろ１セクションフレーム - 3を削除
+        final_history_pixels = final_history_pixels[:,:,latent_window_size * 4:,:,:]
+        final_history_pixels = final_history_pixels[:,:,:-(latent_window_size* 4 - 3),:,:]
+        print(final_history_pixels.shape)
         output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}_1loop_{loop_num}.mp4')
         save_bcthw_as_mp4(final_history_pixels, output_filename, fps=30, crf=mp4_crf)
         
@@ -689,8 +712,6 @@ with block:
                 
                 generation_count = gr.Slider(label="Generation Count", minimum=1, maximum=500, value=1, step=1,
                                                   info='生成回数です。この値が2以上の場合、Seedはランダムな値が使用されます。')
-                
-  
         
                 progress_preview_option = gr.Radio(
                     choices=["All Progress File Output",
@@ -714,11 +735,16 @@ with block:
 
                 total_second_length = gr.Slider(label="Main Video Length (Section)", minimum=1, maximum=120, value=1, step=1)
                 connection_second_length = gr.Slider(label="Connection Video Length (Section)", minimum=1, maximum=120, value=1, step=1)
-                padding_second_length = gr.Slider(label="Padding Video Length (Section)", minimum=0, maximum=10, value=0, step=1, info="この値を0にすると元画像を経由します。1以上にすると、元画像から離れます。")
+                latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=False)  # Should not change
 
+                def update_text(slider_value,latent_window_size):
+                    return str(int(slider_value * latent_window_size))
+                with gr.Group():
+                    padding_second_length = gr.Slider(label="Padding Video Length (Section)", minimum=0, maximum=10, value=0, step=0.1, info="この値を0にすると元画像を経由します。1以上にすると、元画像から離れます。")
+                    text = gr.Textbox(label="Padding Video Length Checker", info="この値が変わらなければ、Padding Video Length (Section)の変更の効果はありません。")
+                    padding_second_length.change(fn=update_text, inputs=[padding_second_length,latent_window_size], outputs=text)
                 loop_num = gr.Slider(label="Loop Num", minimum=1, maximum=100, value=5, step=1, info='Loop num.')
 
-                latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=False)  # Should not change
                 steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1, info='Changing this value is not recommended.')
 
                 cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change

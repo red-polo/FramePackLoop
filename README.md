@@ -85,7 +85,7 @@ FramePackLoopでは、本家FramePackに対して以下のパラメータが変�
 この値は、Generation Countが1の場合のみ有効です。  
 動画生成に使用されたSeedは生成された動画のファイル名に記録されます。
 
-### Without PreviewモードおよびDecode Latent Fileモードのユースケース
+### Without VAE DecodeモードおよびDecode Latent Fileモードのユースケース
 1. Seed探し  
 FramePackでは、動作の内容が使用するSeedに大きく依存します。そのため、好みの動作を実現するSeedを見つけることが重要な場合があります。  
 短い動画であれば、各Seedでどのような動作が生成されるかをLatent画像を確認することで、ある程度推測できます。  

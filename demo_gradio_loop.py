@@ -15,6 +15,7 @@ import safetensors.torch as sf
 import numpy as np
 import argparse
 import math
+import re
 
 from PIL import Image
 from diffusers import AutoencoderKLHunyuanVideo
@@ -111,7 +112,7 @@ stream = AsyncStream()
 outputs_folder = './outputs/'
 os.makedirs(outputs_folder, exist_ok=True)
 
-def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview):
+def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview, output_latent_image, latent_input_file):
     for generation_count_index in range(generation_count):
         if stream.input_queue.top() == 'end':
             stream.output_queue.push(('end', None))
@@ -119,11 +120,11 @@ def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_sec
         if generation_count != 1:
             seed = random.randint(0, 2**32 - 1)
         stream.output_queue.push(('generation count', f"Generation index:{generation_count_index + 1}"))
-        worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview)
+        worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview, output_latent_image, latent_input_file)
     stream.output_queue.push(('end', None))
     
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length, padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview):
+def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_second_length, padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview, output_latent_image, latent_input_file):
     if stream.input_queue.top() == 'end':
         stream.output_queue.push(('end', None))
         return
@@ -138,6 +139,8 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
     connection_latent_sections = (connection_second_length * 30) / (latent_window_size * 4)
     connection_latent_sections = int(max(round(connection_second_length), 1))
     connection_latent_sections = connection_second_length
+
+    all_latent_section = total_latent_sections + connection_latent_sections
     # print(total_latent_sections)
     # print(connection_latent_sections)
     
@@ -146,426 +149,447 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
     stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Starting ...'))))
 
     try:
-        # Clean GPU
-        if not high_vram:
-            unload_complete_models(
-                text_encoder, text_encoder_2, image_encoder, vae, transformer
-            )
+        if latent_input_file is None:
+            # Clean GPU
+            if not high_vram:
+                unload_complete_models(
+                    text_encoder, text_encoder_2, image_encoder, vae, transformer
+                )
 
-        # Text encoding
+            # Text encoding
 
-        stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Text encoding ...'))))
-
-        if not high_vram:
-            fake_diffusers_current_device(text_encoder, gpu)  # since we only encode one text - that is one model move and one encode, offload is same time consumption since it is also one load and one encode.
-            load_model_as_complete(text_encoder_2, target_device=gpu)
-
-        llama_vec, clip_l_pooler = encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
-
-        if cfg == 1:
-            llama_vec_n, clip_l_pooler_n = torch.zeros_like(llama_vec), torch.zeros_like(clip_l_pooler)
-        else:
-            llama_vec_n, clip_l_pooler_n = encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
-
-        llama_vec, llama_attention_mask = crop_or_pad_yield_mask(llama_vec, length=512)
-        llama_vec_n, llama_attention_mask_n = crop_or_pad_yield_mask(llama_vec_n, length=512)
-
-        # Processing input image
-
-        stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Image processing ...'))))
-
-        H, W, C = input_image.shape
-        height, width = find_nearest_bucket(H, W, resolution=640)
-        input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
-
-        if not without_preview:
-            Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}_{seed}.png'))
-
-        input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
-        input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
-        
-
-        # VAE encoding
-
-        stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'VAE encoding ...'))))
-
-        if not high_vram:
-            load_model_as_complete(vae, target_device=gpu)
-
-        start_latent = vae_encode(input_image_pt, vae)
-
-        # CLIP Vision
-
-        stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
-
-        if not high_vram:
-            load_model_as_complete(image_encoder, target_device=gpu)
-
-        image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
-        image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
-
-        # Dtype
-
-        llama_vec = llama_vec.to(transformer.dtype)
-        llama_vec_n = llama_vec_n.to(transformer.dtype)
-        clip_l_pooler = clip_l_pooler.to(transformer.dtype)
-        clip_l_pooler_n = clip_l_pooler_n.to(transformer.dtype)
-        image_encoder_last_hidden_state = image_encoder_last_hidden_state.to(transformer.dtype)
-
-        # Sampling
-
-        stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Start sampling ...'))))
-
-        rnd = torch.Generator("cpu").manual_seed(seed)
-        num_frames = latent_window_size * 4 - 3
-
-        ##メイン作成
-
-        history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
-        history_pixels = None
-        total_generated_latent_frames = 0
-
-        
-        latent_paddings = [i for i in reversed(range(total_latent_sections))]
-
-        
-
-        if total_latent_sections > 4:
-            # In theory the latent_paddings should follow the above sequence, but it seems that duplicating some
-            # items looks better than expanding it when total_latent_sections > 4
-            # One can try to remove below trick and just
-            # use `latent_paddings = list(reversed(range(total_latent_sections)))` to compare
-            latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
-
-        last_frame = total_second_length * 30
-        for latent_padding in latent_paddings:
-            is_last_section = latent_padding == 0
-            latent_padding_init_size = int(padding_second_length * latent_window_size)
-
-            latent_padding_size = (latent_padding * latent_window_size) + latent_padding_init_size
-            print(latent_padding_size)
-            if stream.input_queue.top() == 'end':
-                stream.output_queue.push(('end', None))
-                return
-
-            print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}')
-
-            indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
-            clean_latent_indices_pre, blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split([1, latent_padding_size, latent_window_size, 1, 2, 16], dim=1)
-            #print(clean_latent_indices_pre)
-            clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
-
-            clean_latents_pre = start_latent.to(history_latents)
-            clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
-
-            clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
-            
+            stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Text encoding ...'))))
 
             if not high_vram:
-                unload_complete_models()
-                move_model_to_device_with_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=gpu_memory_preservation)
+                fake_diffusers_current_device(text_encoder, gpu)  # since we only encode one text - that is one model move and one encode, offload is same time consumption since it is also one load and one encode.
+                load_model_as_complete(text_encoder_2, target_device=gpu)
 
-            if use_teacache:
-                transformer.initialize_teacache(enable_teacache=True, num_steps=steps)
+            llama_vec, clip_l_pooler = encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
+
+            if cfg == 1:
+                llama_vec_n, clip_l_pooler_n = torch.zeros_like(llama_vec), torch.zeros_like(clip_l_pooler)
             else:
-                transformer.initialize_teacache(enable_teacache=False)
+                llama_vec_n, clip_l_pooler_n = encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
 
-            def callback(d):
-                preview = d['denoised']
-                preview = vae_decode_fake(preview)
+            llama_vec, llama_attention_mask = crop_or_pad_yield_mask(llama_vec, length=512)
+            llama_vec_n, llama_attention_mask_n = crop_or_pad_yield_mask(llama_vec_n, length=512)
 
-                preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
-                preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
+            # Processing input image
 
+            stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Image processing ...'))))
+
+            H, W, C = input_image.shape
+            height, width = find_nearest_bucket(H, W, resolution=640)
+            input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
+
+            if not without_preview:
+                Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}_{seed}.png'))
+
+            input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
+            input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
+            
+
+            # VAE encoding
+
+            stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'VAE encoding ...'))))
+
+            if not high_vram:
+                load_model_as_complete(vae, target_device=gpu)
+
+            start_latent = vae_encode(input_image_pt, vae)
+
+            # CLIP Vision
+
+            stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
+
+            if not high_vram:
+                load_model_as_complete(image_encoder, target_device=gpu)
+
+            image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
+            image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+
+            # Dtype
+
+            llama_vec = llama_vec.to(transformer.dtype)
+            llama_vec_n = llama_vec_n.to(transformer.dtype)
+            clip_l_pooler = clip_l_pooler.to(transformer.dtype)
+            clip_l_pooler_n = clip_l_pooler_n.to(transformer.dtype)
+            image_encoder_last_hidden_state = image_encoder_last_hidden_state.to(transformer.dtype)
+
+            # Sampling
+
+            stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Start sampling ...'))))
+
+            rnd = torch.Generator("cpu").manual_seed(seed)
+            num_frames = latent_window_size * 4 - 3
+
+            ##メイン作成
+
+            history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
+            history_pixels = None
+            total_generated_latent_frames = 0
+
+            
+            latent_paddings = [i for i in reversed(range(total_latent_sections))]
+
+            
+
+            if total_latent_sections > 4:
+                # In theory the latent_paddings should follow the above sequence, but it seems that duplicating some
+                # items looks better than expanding it when total_latent_sections > 4
+                # One can try to remove below trick and just
+                # use `latent_paddings = list(reversed(range(total_latent_sections)))` to compare
+                latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
+
+            last_frame = total_second_length * 30
+            for latent_padding in latent_paddings:
+                is_last_section = latent_padding == 0
+                latent_padding_init_size = int(padding_second_length * latent_window_size)
+
+                latent_padding_size = (latent_padding * latent_window_size) + latent_padding_init_size
+                print(latent_padding_size)
                 if stream.input_queue.top() == 'end':
                     stream.output_queue.push(('end', None))
-                    raise KeyboardInterrupt('User ends the task.')
+                    return
 
-                current_step = d['i'] + 1
-                percentage = int(100.0 * current_step / steps)
-                hint = f'Sampling {current_step}/{steps}'
-                desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, Video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30) :.2f} seconds (FPS-30). The video is being extended now ...'
+                print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}')
+
+                indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
+                clean_latent_indices_pre, blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split([1, latent_padding_size, latent_window_size, 1, 2, 16], dim=1)
+                #print(clean_latent_indices_pre)
+                clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
+
+                clean_latents_pre = start_latent.to(history_latents)
+                clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
+
+                clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
                 
-                stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
-                return
 
-            generated_latents = sample_hunyuan(
-                transformer=transformer,
-                sampler='unipc',
-                width=width,
-                height=height,
-                frames=num_frames,
-                real_guidance_scale=cfg,
-                distilled_guidance_scale=gs,
-                guidance_rescale=rs,
-                # shift=3.0,
-                num_inference_steps=steps,
-                generator=rnd,
-                prompt_embeds=llama_vec,
-                prompt_embeds_mask=llama_attention_mask,
-                prompt_poolers=clip_l_pooler,
-                negative_prompt_embeds=llama_vec_n,
-                negative_prompt_embeds_mask=llama_attention_mask_n,
-                negative_prompt_poolers=clip_l_pooler_n,
-                device=gpu,
-                dtype=torch.bfloat16,
-                image_embeddings=image_encoder_last_hidden_state,
-                latent_indices=latent_indices,
-                clean_latents=clean_latents,
-                clean_latent_indices=clean_latent_indices,
-                clean_latents_2x=clean_latents_2x,
-                clean_latent_2x_indices=clean_latent_2x_indices,
-                clean_latents_4x=clean_latents_4x,
-                clean_latent_4x_indices=clean_latent_4x_indices,
-                callback=callback,
-            )
-
-            # if is_last_section:
-            #     generated_latents = torch.cat([start_latent.to(generated_latents), generated_latents], dim=2)
-
-
-            total_generated_latent_frames += int(generated_latents.shape[2])
-            history_latents = torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
-
-            real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
-            
-            if not without_preview:
-                if not high_vram:
-                    offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
-                    load_model_as_complete(vae, target_device=gpu)
-
-                if history_pixels is None:
-                    history_pixels = vae_decode(real_history_latents, vae).cpu()
-                else:
-                    section_latent_frames = (latent_window_size * 2)
-                    overlapped_frames = latent_window_size * 4 - 3
-
-                    current_pixels = vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
-                    history_pixels = soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
-                    
                 if not high_vram:
                     unload_complete_models()
+                    move_model_to_device_with_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=gpu_memory_preservation)
 
-                if reduce_file_output:
-                    output_filename = os.path.join(outputs_folder, tmp_filename)
-                else:    
-                    output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}.mp4')
+                if use_teacache:
+                    transformer.initialize_teacache(enable_teacache=True, num_steps=steps)
+                else:
+                    transformer.initialize_teacache(enable_teacache=False)
 
-                save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
+                def callback(d):
+                    preview = d['denoised']
+                    preview = vae_decode_fake(preview)
 
-                print(f'Decoded. Current latent shape {real_history_latents.shape}; pixel shape {history_pixels.shape}')
+                    preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
+                    preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
 
-                stream.output_queue.push(('file', output_filename))
+                    if stream.input_queue.top() == 'end':
+                        stream.output_queue.push(('end', None))
+                        raise KeyboardInterrupt('User ends the task.')
 
-            if is_last_section:
-                break
-        
+                    current_step = d['i'] + 1
+                    percentage = int(100.0 * current_step / steps)
+                    hint = f'Sampling {current_step}/{steps}'
+                    desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, Video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30) :.2f} seconds (FPS-30). The video is being extended now ...'
+                    
+                    stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
+                    return
+
+                generated_latents = sample_hunyuan(
+                    transformer=transformer,
+                    sampler='unipc',
+                    width=width,
+                    height=height,
+                    frames=num_frames,
+                    real_guidance_scale=cfg,
+                    distilled_guidance_scale=gs,
+                    guidance_rescale=rs,
+                    # shift=3.0,
+                    num_inference_steps=steps,
+                    generator=rnd,
+                    prompt_embeds=llama_vec,
+                    prompt_embeds_mask=llama_attention_mask,
+                    prompt_poolers=clip_l_pooler,
+                    negative_prompt_embeds=llama_vec_n,
+                    negative_prompt_embeds_mask=llama_attention_mask_n,
+                    negative_prompt_poolers=clip_l_pooler_n,
+                    device=gpu,
+                    dtype=torch.bfloat16,
+                    image_embeddings=image_encoder_last_hidden_state,
+                    latent_indices=latent_indices,
+                    clean_latents=clean_latents,
+                    clean_latent_indices=clean_latent_indices,
+                    clean_latents_2x=clean_latents_2x,
+                    clean_latent_2x_indices=clean_latent_2x_indices,
+                    clean_latents_4x=clean_latents_4x,
+                    clean_latent_4x_indices=clean_latent_4x_indices,
+                    callback=callback,
+                )
+
+                # if is_last_section:
+                #     generated_latents = torch.cat([start_latent.to(generated_latents), generated_latents], dim=2)
 
 
-        ##コネクション作成
+                total_generated_latent_frames += int(generated_latents.shape[2])
+                history_latents = torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
 
+                real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
+                
+                if not without_preview:
+                    if not high_vram:
+                        offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
+                        load_model_as_complete(vae, target_device=gpu)
 
-        #post_history_latents = torch.zeros(size=(1, 16, 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
-        post_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
-        post_history_pixels = history_pixels
-        print(post_history_latents.shape)
-        post_total_generated_latent_frames = total_generated_latent_frames
-        print("generate post history")
-        
-        latent_paddings = [i for i in reversed(range(connection_latent_sections))]
-        print(latent_paddings)
-        if connection_latent_sections > 4:
-            # In theory the latent_paddings should follow the above sequence, but it seems that duplicating some
-            # items looks better than expanding it when total_latent_sections > 4
-            # One can try to remove below trick and just
-            # use `latent_paddings = list(reversed(range(total_latent_sections)))` to compare
-            latent_paddings = [3] + [2] * (connection_latent_sections - 3) + [1, 0]
-        
-        if total_latent_sections > 2:
-            N = 16
-        elif total_latent_sections == 2:
-            N= 15
-        else:
-            N=6
-        for latent_padding in latent_paddings:
-            print("latent_padding")
+                    if history_pixels is None:
+                        history_pixels = vae_decode(real_history_latents, vae).cpu()
+                    else:
+                        section_latent_frames = (latent_window_size * 2)
+                        overlapped_frames = latent_window_size * 4 - 3
+
+                        current_pixels = vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
+                        history_pixels = soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
+                        
+                    if not high_vram:
+                        unload_complete_models()
+
+                    if reduce_file_output:
+                        output_filename = os.path.join(outputs_folder, tmp_filename)
+                    else:    
+                        output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}.mp4')
+
+                    save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
+
+                    print(f'Decoded. Current latent shape {real_history_latents.shape}; pixel shape {history_pixels.shape}')
+
+                    stream.output_queue.push(('file', output_filename))
+
+                if is_last_section:
+                    break
             
-            is_last_section = latent_padding == 0
-            latent_padding_size = latent_padding * latent_window_size
 
-            if stream.input_queue.top() == 'end':
-                stream.output_queue.push(('end', None))
-                return
 
-            print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}')
+            ##コネクション作成
 
-            indices = torch.arange(0, sum([N,2,1,latent_padding_size, latent_window_size, 1, 2, N])).unsqueeze(0)
-            pre_clean_latent_4x_indices, pre_clean_latent_2x_indices, clean_latent_indices_pre,blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = \
-                indices.split([N,2,1,latent_padding_size, latent_window_size, 1, 2, N], dim=1)
+
+            #post_history_latents = torch.zeros(size=(1, 16, 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
+            post_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
+            post_history_pixels = history_pixels
+            print(post_history_latents.shape)
+            post_total_generated_latent_frames = total_generated_latent_frames
+            print("generate post history")
             
-            #print(clean_latent_indices_pre)
-            clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
-            clean_latent_2x_indices = torch.cat([pre_clean_latent_2x_indices, clean_latent_2x_indices], dim=1)
-            clean_latent_4x_indices = torch.cat([pre_clean_latent_4x_indices, clean_latent_4x_indices], dim=1)
-            # clean_latent_indices = torch.cat([clean_latent_indices_post], dim=1)
-            # clean_latent_2x_indices = torch.cat( [clean_latent_2x_indices], dim=1)
-            # clean_latent_4x_indices = torch.cat([ clean_latent_4x_indices], dim=1)
-
-            # clean_latent_indices = torch.cat([ pre_clean_latent_2x_indices,
-            #                                   clean_latent_indices_pre, clean_latent_indices_post,
-            #                                   clean_latent_2x_indices
-            #                                   ], dim=1)
-            # clean_latent_2x_indices = None
-            # clean_latent_4x_indices =  torch.cat([pre_clean_latent_4x_indices
-                                             
-            #                                   ,clean_latent_4x_indices
-            #                                   ], dim=1)
-            #print(clean_latent_indices)
-            #print(clean_latent_2x_indices)
-            #print(clean_latent_4x_indices)
+            latent_paddings = [i for i in reversed(range(connection_latent_sections))]
+            print(latent_paddings)
+            if connection_latent_sections > 4:
+                # In theory the latent_paddings should follow the above sequence, but it seems that duplicating some
+                # items looks better than expanding it when total_latent_sections > 4
+                # One can try to remove below trick and just
+                # use `latent_paddings = list(reversed(range(total_latent_sections)))` to compare
+                latent_paddings = [3] + [2] * (connection_latent_sections - 3) + [1, 0]
             
-
-            #clean_latents_pre = history_latents[:, :, total_generated_latent_frames-1:total_generated_latent_frames, :, :]
-            #print(post_history_latents.shape)
-
-            clean_latents_4x_pre, clean_latents_2x_pre,clean_latents_pre  = post_history_latents[:, :, -(1 + 2 + N):, :, :].split([N, 2, 1], dim=2)
-            clean_latents_post, clean_latents_2x, clean_latents_4x = post_history_latents[:, :, :1 + 2 + N, :, :].split([1, 2, N], dim=2)
-
-            clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
-            clean_latents_2x = torch.cat([clean_latents_2x_pre, clean_latents_2x], dim=2)
-            clean_latents_4x = torch.cat([clean_latents_4x_pre, clean_latents_4x], dim=2)
-            # clean_latents = torch.cat([ clean_latents_post], dim=2)
-            # clean_latents_2x = torch.cat([ clean_latents_2x], dim=2)
-            # clean_latents_4x = torch.cat([ clean_latents_4x], dim=2)
-            # clean_latents = torch.cat([clean_latents_2x_pre,clean_latents_pre,
-            #                             clean_latents_post,clean_latents_2x], dim=2)
-            # clean_latents_2x = None
-            # clean_latents_4x = torch.cat([clean_latents_4x_pre,clean_latents_4x], dim=2)
-            
-
-            if not high_vram:
-                unload_complete_models()
-                move_model_to_device_with_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=gpu_memory_preservation)
-
-            if use_teacache:
-                transformer.initialize_teacache(enable_teacache=True, num_steps=steps)
+            if total_latent_sections > 2:
+                N = 16
+            elif total_latent_sections == 2:
+                N= 15
             else:
-                transformer.initialize_teacache(enable_teacache=False)
-
-            def callback(d):
-                preview = d['denoised']
-                preview = vae_decode_fake(preview)
-
-                preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
-                preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
+                N=6
+            for latent_padding in latent_paddings:
+                print("latent_padding")
+                
+                is_last_section = latent_padding == 0
+                latent_padding_size = latent_padding * latent_window_size
 
                 if stream.input_queue.top() == 'end':
                     stream.output_queue.push(('end', None))
-                    raise KeyboardInterrupt('User ends the task.')
+                    return
 
-                current_step = d['i'] + 1
-                percentage = int(100.0 * current_step / steps)
-                hint = f'Sampling {current_step}/{steps}'
-                desc = f'Now making connection video.'
-                stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
-                return
+                print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}')
 
-            generated_latents = sample_hunyuan(
-                transformer=transformer,
-                sampler='unipc',
-                width=width,
-                height=height,
-                frames=num_frames,
-                real_guidance_scale=cfg,
-                distilled_guidance_scale=gs,
-                guidance_rescale=rs,
-                # shift=3.0,
-                num_inference_steps=steps,
-                generator=rnd,
-                prompt_embeds=llama_vec,
-                prompt_embeds_mask=llama_attention_mask,
-                prompt_poolers=clip_l_pooler,
-                negative_prompt_embeds=llama_vec_n,
-                negative_prompt_embeds_mask=llama_attention_mask_n,
-                negative_prompt_poolers=clip_l_pooler_n,
-                device=gpu,
-                dtype=torch.bfloat16,
-                image_embeddings=image_encoder_last_hidden_state,
-                latent_indices=latent_indices,
-                clean_latents=clean_latents,
-                clean_latent_indices=clean_latent_indices,
-                clean_latents_2x=clean_latents_2x,
-                clean_latent_2x_indices=clean_latent_2x_indices,
-                clean_latents_4x=clean_latents_4x,
-                clean_latent_4x_indices=clean_latent_4x_indices,
-                callback=callback,
-            )
+                indices = torch.arange(0, sum([N,2,1,latent_padding_size, latent_window_size, 1, 2, N])).unsqueeze(0)
+                pre_clean_latent_4x_indices, pre_clean_latent_2x_indices, clean_latent_indices_pre,blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = \
+                    indices.split([N,2,1,latent_padding_size, latent_window_size, 1, 2, N], dim=1)
+                
+                #print(clean_latent_indices_pre)
+                clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
+                clean_latent_2x_indices = torch.cat([pre_clean_latent_2x_indices, clean_latent_2x_indices], dim=1)
+                clean_latent_4x_indices = torch.cat([pre_clean_latent_4x_indices, clean_latent_4x_indices], dim=1)
+                # clean_latent_indices = torch.cat([clean_latent_indices_post], dim=1)
+                # clean_latent_2x_indices = torch.cat( [clean_latent_2x_indices], dim=1)
+                # clean_latent_4x_indices = torch.cat([ clean_latent_4x_indices], dim=1)
 
-            # if is_last_section:
-            #     generated_latents = torch.cat([start_latent.to(generated_latents), generated_latents], dim=2)
+                # clean_latent_indices = torch.cat([ pre_clean_latent_2x_indices,
+                #                                   clean_latent_indices_pre, clean_latent_indices_post,
+                #                                   clean_latent_2x_indices
+                #                                   ], dim=1)
+                # clean_latent_2x_indices = None
+                # clean_latent_4x_indices =  torch.cat([pre_clean_latent_4x_indices
+                                                
+                #                                   ,clean_latent_4x_indices
+                #                                   ], dim=1)
+                #print(clean_latent_indices)
+                #print(clean_latent_2x_indices)
+                #print(clean_latent_4x_indices)
+                
 
+                #clean_latents_pre = history_latents[:, :, total_generated_latent_frames-1:total_generated_latent_frames, :, :]
+                #print(post_history_latents.shape)
 
-            post_total_generated_latent_frames += int(generated_latents.shape[2])
-            post_history_latents = torch.cat([generated_latents.to(post_history_latents), post_history_latents], dim=2)
-            
-            post_real_history_latents = post_history_latents[:, :, :post_total_generated_latent_frames, :, :]
+                clean_latents_4x_pre, clean_latents_2x_pre,clean_latents_pre  = post_history_latents[:, :, -(1 + 2 + N):, :, :].split([N, 2, 1], dim=2)
+                clean_latents_post, clean_latents_2x, clean_latents_4x = post_history_latents[:, :, :1 + 2 + N, :, :].split([1, 2, N], dim=2)
 
+                clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
+                clean_latents_2x = torch.cat([clean_latents_2x_pre, clean_latents_2x], dim=2)
+                clean_latents_4x = torch.cat([clean_latents_4x_pre, clean_latents_4x], dim=2)
+                # clean_latents = torch.cat([ clean_latents_post], dim=2)
+                # clean_latents_2x = torch.cat([ clean_latents_2x], dim=2)
+                # clean_latents_4x = torch.cat([ clean_latents_4x], dim=2)
+                # clean_latents = torch.cat([clean_latents_2x_pre,clean_latents_pre,
+                #                             clean_latents_post,clean_latents_2x], dim=2)
+                # clean_latents_2x = None
+                # clean_latents_4x = torch.cat([clean_latents_4x_pre,clean_latents_4x], dim=2)
+                
 
-            if not without_preview:
-                if not high_vram:
-                    offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
-                    load_model_as_complete(vae, target_device=gpu)
-
- 
-                if post_history_pixels is None:
-                    post_history_pixels = vae_decode(post_real_history_latents, vae).cpu()
-                else:
-                    section_latent_frames = (latent_window_size * 2) if is_last_section else (latent_window_size * 2)
-                    overlapped_frames = latent_window_size * 4 - 3
-
-                    current_pixels = vae_decode(post_real_history_latents[:, :, :section_latent_frames], vae).cpu()
-                    #print(current_pixels.shape)
-                    #print(post_history_pixels.shape)
-                    post_history_pixels = soft_append_bcthw(current_pixels, post_history_pixels, overlapped_frames)
-                    
                 if not high_vram:
                     unload_complete_models()
+                    move_model_to_device_with_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=gpu_memory_preservation)
 
-                if reduce_file_output:
-                    output_filename = os.path.join(outputs_folder, tmp_filename)
-                else:    
-                    output_filename = os.path.join(outputs_folder, f'{job_id}_{post_total_generated_latent_frames}_{seed}_post.mp4')
+                if use_teacache:
+                    transformer.initialize_teacache(enable_teacache=True, num_steps=steps)
+                else:
+                    transformer.initialize_teacache(enable_teacache=False)
 
-                save_bcthw_as_mp4(post_history_pixels, output_filename, fps=30, crf=mp4_crf)
+                def callback(d):
+                    preview = d['denoised']
+                    preview = vae_decode_fake(preview)
 
-                print(f'Decoded. Current latent shape {post_real_history_latents.shape}; pixel shape {post_history_pixels.shape}')
+                    preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
+                    preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
 
-                stream.output_queue.push(('file', output_filename))
+                    if stream.input_queue.top() == 'end':
+                        stream.output_queue.push(('end', None))
+                        raise KeyboardInterrupt('User ends the task.')
 
-            if is_last_section:
-                break
+                    current_step = d['i'] + 1
+                    percentage = int(100.0 * current_step / steps)
+                    hint = f'Sampling {current_step}/{steps}'
+                    desc = f'Now making connection video.'
+                    stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
+                    return
+
+                generated_latents = sample_hunyuan(
+                    transformer=transformer,
+                    sampler='unipc',
+                    width=width,
+                    height=height,
+                    frames=num_frames,
+                    real_guidance_scale=cfg,
+                    distilled_guidance_scale=gs,
+                    guidance_rescale=rs,
+                    # shift=3.0,
+                    num_inference_steps=steps,
+                    generator=rnd,
+                    prompt_embeds=llama_vec,
+                    prompt_embeds_mask=llama_attention_mask,
+                    prompt_poolers=clip_l_pooler,
+                    negative_prompt_embeds=llama_vec_n,
+                    negative_prompt_embeds_mask=llama_attention_mask_n,
+                    negative_prompt_poolers=clip_l_pooler_n,
+                    device=gpu,
+                    dtype=torch.bfloat16,
+                    image_embeddings=image_encoder_last_hidden_state,
+                    latent_indices=latent_indices,
+                    clean_latents=clean_latents,
+                    clean_latent_indices=clean_latent_indices,
+                    clean_latents_2x=clean_latents_2x,
+                    clean_latent_2x_indices=clean_latent_2x_indices,
+                    clean_latents_4x=clean_latents_4x,
+                    clean_latent_4x_indices=clean_latent_4x_indices,
+                    callback=callback,
+                )
+
+                # if is_last_section:
+                #     generated_latents = torch.cat([start_latent.to(generated_latents), generated_latents], dim=2)
+
+
+                post_total_generated_latent_frames += int(generated_latents.shape[2])
+                post_history_latents = torch.cat([generated_latents.to(post_history_latents), post_history_latents], dim=2)
+                
+                post_real_history_latents = post_history_latents[:, :, :post_total_generated_latent_frames, :, :]
+
+
+                if not without_preview:
+                    if not high_vram:
+                        offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
+                        load_model_as_complete(vae, target_device=gpu)
+
+    
+                    if post_history_pixels is None:
+                        post_history_pixels = vae_decode(post_real_history_latents, vae).cpu()
+                    else:
+                        section_latent_frames = (latent_window_size * 2) if is_last_section else (latent_window_size * 2)
+                        overlapped_frames = latent_window_size * 4 - 3
+
+                        current_pixels = vae_decode(post_real_history_latents[:, :, :section_latent_frames], vae).cpu()
+                        #print(current_pixels.shape)
+                        #print(post_history_pixels.shape)
+                        post_history_pixels = soft_append_bcthw(current_pixels, post_history_pixels, overlapped_frames)
+                        
+                    if not high_vram:
+                        unload_complete_models()
+
+                    if reduce_file_output:
+                        output_filename = os.path.join(outputs_folder, tmp_filename)
+                    else:    
+                        output_filename = os.path.join(outputs_folder, f'{job_id}_{post_total_generated_latent_frames}_{seed}_post.mp4')
+
+                    save_bcthw_as_mp4(post_history_pixels, output_filename, fps=30, crf=mp4_crf)
+
+                    print(f'Decoded. Current latent shape {post_real_history_latents.shape}; pixel shape {post_history_pixels.shape}')
+
+                    stream.output_queue.push(('file', output_filename))
+
+                if is_last_section:
+                    break
+
+    
+
+            #1ループ作成
+            
+            #print(all_latent_section)
+
+            #print(history_latents.shape)
+            connection_hisotry_latents = post_real_history_latents[:,:,:latent_window_size*connection_latent_sections,:,:]
+            main_history_latents = real_history_latents[:,:,:latent_window_size*total_latent_sections,:,:]
             
 
-        #1ループ作成
-        all_latent_section = total_latent_sections + connection_latent_sections
-        #print(all_latent_section)
+
+            final_latents = torch.cat([connection_hisotry_latents[:,:,-latent_window_size:,:,:],
+                                    main_history_latents,
+                                    connection_hisotry_latents,
+                                    main_history_latents[:,:,-latent_window_size:,:,:]],dim=2)
+            
+            if output_latent_image:
+                to_pixcel_latents = torch.cat([main_history_latents,
+                                connection_hisotry_latents],dim=2)
+                
+                to_pixcel_latents_png = vae_decode_fake(to_pixcel_latents)
+                output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}_latent.png')
+                save_bcthw_as_png(to_pixcel_latents_png, output_filename)
+
+                output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}_latent.pt')
+                torch.save(final_latents,output_filename)
+                return
+        
+        else:
+            final_latents = torch.load(latent_input_file)   
+            filename = os.path.basename(latent_input_file)    
+            match = re.match(r"(\d+_\d+_\d+_\d+)_([0-9]+)_([0-9]+)_latent\.pt", filename)
+
+            job_id = match.group(1)  # '250502_204151_409_9042'
+            total_generated_latent_frames = match.group(2)  # '9'
+            seed = match.group(3)  # '31337'
+        
         if not high_vram:
             offload_model_from_device_for_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=8)
             load_model_as_complete(vae, target_device=gpu)
-        #print(history_latents.shape)
-        connection_hisotry_latents = post_real_history_latents[:,:,:latent_window_size*connection_latent_sections,:,:]
-        main_history_latents = real_history_latents[:,:,:latent_window_size*total_latent_sections,:,:]
-        
-
-
-        final_latents = torch.cat([connection_hisotry_latents[:,:,-latent_window_size:,:,:],
-                                   main_history_latents,
-                                   connection_hisotry_latents,
-                                   main_history_latents[:,:,-latent_window_size:,:,:]],dim=2)
-        to_pixcel_latents = torch.cat([main_history_latents,
-                                   connection_hisotry_latents],dim=2)
-        to_pixcel_latents_png = vae_decode_fake(to_pixcel_latents)
-        save_bcthw_as_png(to_pixcel_latents_png, "test.png")
         #final_latents = final_latents.repeat(1,1,loop_num,1,1)
         #print(final_latents.shape)
         final_history_pixels = None
@@ -631,31 +655,55 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
     return
 
 
-def process(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf,progress_preview_option):
+def process(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf,progress_preview_option, latent_input_file):
     global stream
-    assert input_image is not None, 'No input image!'
     # 表示名と値のマッピング
     options = {
         "All Progress File Output": 1,
         "Reduce Progress File Output": 2,
-        "Without Preview": 3
+        "Without Preview": 3,
+        "Without VAE Decode": 4,
+        "Decode Latent File": 5
     }
 
     if options[progress_preview_option] == 1:
         reduce_file_output = False
         without_preview = False
+        output_latent_image = False
+        latent_input_file = None
     elif options[progress_preview_option] == 2:
         reduce_file_output = True
         without_preview = False
+        output_latent_image = False
+        latent_input_file = None
     elif options[progress_preview_option] == 3:
         reduce_file_output = True
         without_preview = True
+        output_latent_image = False
+        latent_input_file = None
+    elif options[progress_preview_option] == 4:
+        reduce_file_output = True
+        without_preview = True
+        output_latent_image = True
+        latent_input_file = None
+    elif options[progress_preview_option] == 5:
+        reduce_file_output = True
+        without_preview = True
+        output_latent_image = False
+
+    if options[progress_preview_option] != 5:
+        assert input_image is not None, 'No input image!'
+    else:
+        assert latent_input_file is not None, 'No input Lantet file!'
+
+
+
 
     yield None, None, '', '', gr.update(interactive=False), gr.update(interactive=True), ''
 
     stream = AsyncStream()
 
-    async_run(loop_worker, input_image, prompt, n_prompt, generation_count, seed, total_second_length,connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview)
+    async_run(loop_worker, input_image, prompt, n_prompt, generation_count, seed, total_second_length,connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview, output_latent_image, latent_input_file)
 
     output_filename = None
 
@@ -697,13 +745,17 @@ with block:
     with gr.Row():
         with gr.Column():
             input_image = gr.Image(sources='upload', type="numpy", label="Image", height=320)
+            def process_file(file):
+                return file
+            file_input = gr.File(label="Latentファイルをアップロード",file_types=[".pt"],height=30)
             prompt = gr.Textbox(label="Prompt", value='')
             example_quick_prompts = gr.Dataset(samples=quick_prompts, label='Quick List', samples_per_page=1000, components=[prompt])
             example_quick_prompts.click(lambda x: x[0], inputs=[example_quick_prompts], outputs=prompt, show_progress=False, queue=False)
-
+           
             with gr.Row():
                 start_button = gr.Button(value="Start Generation")
                 end_button = gr.Button(value="End Generation", interactive=False)
+                
 
             with gr.Group():
                 use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
@@ -716,7 +768,9 @@ with block:
                 progress_preview_option = gr.Radio(
                     choices=["All Progress File Output",
                             "Reduce Progress File Output",
-                            "Without Preview"],        # 表示用ラベルだけ渡す
+                            "Without Preview",
+                            "Without VAE Decode",
+                            "Decode Latent File"],        
                     label="Progress Option",
                     info = "経過動画のプレビューとファイルの保存方式を設定します。説明は下記。",
                     value="Reduce Progress File Output"                        # ←ここでデフォルト選択！
@@ -726,7 +780,9 @@ with block:
                     - **Reduce Progress File Output**: 途中経過のファイルを同じ名前で上書き保存し、出力ファイル数を減らします。  
                             outputフォルダに system_preview.mp4 というファイルが生成され、プレビュー用に使用されます。  
                             ※動画生成中はこのファイルを開かないでください。  
-                    - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。。
+                    - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。  
+                    - **Without VAE Decode**: （上級者向け）Latentを画像化したImageとLatentファイルを出力します。
+                    - **Decode Latent File**: （上級者向け）指定したLatentファイルを動画にします。
                     """,)
                 #reduce_file_output = gr.Checkbox(label='Reduce File Output', value=False, info='途中経過のファイルの出力を減らします.ただし、outputフォルダにsystem_progress_preview.mp4というファイルが生成されます。これは、プレビューに使用する動画ファイルです。動画生成中は開かないでください。')
                 #without_preview = gr.Checkbox(label='Without Preview', value=False, info='途中経過の動画のプレビューが出力されません。その代わりに、最終アウトプットの出力が早くなります。')
@@ -763,7 +819,7 @@ with block:
             progress_bar = gr.HTML('', elem_classes='no-generating-animation')
             progress_gcounter = gr.Markdown('', elem_classes='no-generating-animation')
 
-    ips = [input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, progress_preview_option]
+    ips = [input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, progress_preview_option, file_input]
     start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button, progress_gcounter])
     end_button.click(fn=end_process)
 

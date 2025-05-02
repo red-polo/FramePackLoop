@@ -36,7 +36,7 @@ FramePackLoopでは、以下の手順でループ動画が生成されます。
 
 FramePackLoopでは、本家FramePackに対して以下のパラメータが変更・追加されています。
 
-![FramePackLoopParameter](images/image.png)
+![FramePackLoopParameter](images/image.jpg)
 
 - **Main Video Length**  
   メイン動画のセクション数です。   
@@ -51,8 +51,10 @@ FramePackLoopでは、本家FramePackに対して以下のパラメータが変�
 
 - **Padding Video Length**  
   - `0` にすると、入力画像から直接始まるループ動画になります。
-  - `0` 以外にすると、少しアニメーションした後からループを開始します。
+  - `0` 以外にすると、少しアニメーションした後からループを開始します。  
+  Padding Video Length Checkerの値が変わらない場合は変更の効果は得られません。
   - 違和感が出る場合や、設定画像を使用する場合は1以上を推奨します（最大3程度が目安）。
+  
 
 - **Loop Num**  
   出力するループ回数です。  
@@ -74,13 +76,42 @@ FramePackLoopでは、本家FramePackに対して以下のパラメータが変�
   - **Reduce Progress File Output**: 途中経過のファイルを同じ名前で上書き保存し、出力ファイル数を減らします。  
   outputフォルダに system_preview.mp4 というファイルが生成され、プレビュー用に使用されます。  
   ※動画生成中はこのファイルを開かないでください。  
-  - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。               
-
+  - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。   
+  - **"Without VAE Decode"**: （上級者向け）Latentを画像化したImageとLatentファイルを出力します。  
+  VAEデコードを行わない分１回あたりの生成時間が短くなります。
+  - **Decode Latent File**: （上級者向け）指定したLatentファイルを動画にします。 
 - **Seed**  
 動画生成時に使用されるSeed値です。  
 この値は、Generation Countが1の場合のみ有効です。  
 動画生成に使用されたSeedは生成された動画のファイル名に記録されます。
 
+### Without PreviewモードおよびDecode Latent Fileモードのユースケース
+1. Seed探し  
+FramePackでは、動作の内容が使用するSeedに大きく依存します。そのため、好みの動作を実現するSeedを見つけることが重要な場合があります。  
+短い動画であれば、各Seedでどのような動作が生成されるかをLatent画像を確認することで、ある程度推測できます。  
+
+![FramePackLoopParameter](images/image9.png)
+
+「Without VAE Decode」モードを使用して、Step数を10程度に設定し、多数のLatent画像を生成することで、好みの動作をしそうなSeedを効率的に見つけることが期待できます。
+その後、見つけたSeedを固定し、Step数を25に設定して動画を再生成することで、狙った動作に近い映像を得やすくなります。
+
+2. 大量生成
+FramePackでは、好みではない動作を含む動画が生成されることも少なくありません。こうした動画に対してVAEデコードを行う時間は、無駄になる場合があります。  
+
+そのため、大量生成を行う際は、LatentイメージとLatentファイルのみを先に大量に生成しておき、あとから好みの動作が含まれていそうなLatentイメージのみをVAEデコードして動画化することで、効率よく好みの動作を含む動画を得られる可能性が高まります。  
+
+このケースでは「Without VAE Decode」モードを使用して、Step数を25に設定して動画生成を行います。
+
+### Latent Fileのデコード方法
+1. Latentファイルを以下のUIを利用してアップロードします。  ![FramePackLoopParameter](images/image10.jpg)
+
+2. SeedにLatent Fileを生成した時のSeedを設定します。
+3. Generation Countは1にします。
+4. Decode Latent Fileにチェックを入れます。
+5. Start Generationでデコードを開始します。
+
+Latentファイルをデコードする際は、Step等のパラメタは基本的にそのLatentファイルを生成した時と同じ設定値にする必要があります。
+デコードした際に出力される動画のファイル名は、Latentファイルと似たインデックスになります。
 
 ## 出力ファイル
 
@@ -92,6 +123,11 @@ FramePackLoopでは、本家FramePackに対して以下のパラメータが変�
 
 - `XXXX_{Seed}_loop_{Loop Num}.mp4`  
   - 1ループ動画を連結した長尺の動画です。
+
+- `XXXX_{Seed}_latent.png`  
+  - latentファイルを画像化したものです。
+- `XXXX_{Seed}_latent.pt`  
+  - latentファイルです。
 
 
 
@@ -118,7 +154,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/Connect/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.3/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -243,7 +279,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/Connect/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.3/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。

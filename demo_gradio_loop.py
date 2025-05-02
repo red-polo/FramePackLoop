@@ -403,50 +403,23 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
 
                 print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}')
 
-                indices = torch.arange(0, sum([N,2,1,latent_padding_size, latent_window_size, 1, 2, N])).unsqueeze(0)
-                pre_clean_latent_4x_indices, pre_clean_latent_2x_indices, clean_latent_indices_pre,blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = \
-                    indices.split([N,2,1,latent_padding_size, latent_window_size, 1, 2, N], dim=1)
+                indices = torch.arange(0, sum([1,latent_padding_size, latent_window_size, 1, 2, N])).unsqueeze(0)
+                clean_latent_indices_pre,blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = \
+                    indices.split([1,latent_padding_size, latent_window_size, 1, 2, N], dim=1)
                 
-                #print(clean_latent_indices_pre)
                 clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
-                clean_latent_2x_indices = torch.cat([pre_clean_latent_2x_indices, clean_latent_2x_indices], dim=1)
-                clean_latent_4x_indices = torch.cat([pre_clean_latent_4x_indices, clean_latent_4x_indices], dim=1)
-                # clean_latent_indices = torch.cat([clean_latent_indices_post], dim=1)
-                # clean_latent_2x_indices = torch.cat( [clean_latent_2x_indices], dim=1)
-                # clean_latent_4x_indices = torch.cat([ clean_latent_4x_indices], dim=1)
+                clean_latent_2x_indices = torch.cat([clean_latent_2x_indices], dim=1)
+                clean_latent_4x_indices = torch.cat([clean_latent_4x_indices], dim=1)
 
-                # clean_latent_indices = torch.cat([ pre_clean_latent_2x_indices,
-                #                                   clean_latent_indices_pre, clean_latent_indices_post,
-                #                                   clean_latent_2x_indices
-                #                                   ], dim=1)
-                # clean_latent_2x_indices = None
-                # clean_latent_4x_indices =  torch.cat([pre_clean_latent_4x_indices
-                                                
-                #                                   ,clean_latent_4x_indices
-                #                                   ], dim=1)
-                #print(clean_latent_indices)
-                #print(clean_latent_2x_indices)
-                #print(clean_latent_4x_indices)
-                
 
-                #clean_latents_pre = history_latents[:, :, total_generated_latent_frames-1:total_generated_latent_frames, :, :]
-                #print(post_history_latents.shape)
-
-                clean_latents_4x_pre, clean_latents_2x_pre,clean_latents_pre  = post_history_latents[:, :, -(1 + 2 + N):, :, :].split([N, 2, 1], dim=2)
+                clean_latents_pre  = post_history_latents[:, :, -1:, :, :]
                 clean_latents_post, clean_latents_2x, clean_latents_4x = post_history_latents[:, :, :1 + 2 + N, :, :].split([1, 2, N], dim=2)
 
                 clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
-                clean_latents_2x = torch.cat([clean_latents_2x_pre, clean_latents_2x], dim=2)
-                clean_latents_4x = torch.cat([clean_latents_4x_pre, clean_latents_4x], dim=2)
-                # clean_latents = torch.cat([ clean_latents_post], dim=2)
-                # clean_latents_2x = torch.cat([ clean_latents_2x], dim=2)
-                # clean_latents_4x = torch.cat([ clean_latents_4x], dim=2)
-                # clean_latents = torch.cat([clean_latents_2x_pre,clean_latents_pre,
-                #                             clean_latents_post,clean_latents_2x], dim=2)
-                # clean_latents_2x = None
-                # clean_latents_4x = torch.cat([clean_latents_4x_pre,clean_latents_4x], dim=2)
-                
+                clean_latents_2x = torch.cat([clean_latents_2x], dim=2)
+                clean_latents_4x = torch.cat([clean_latents_4x], dim=2)
 
+            
                 if not high_vram:
                     unload_complete_models()
                     move_model_to_device_with_memory_preservation(transformer, target_device=gpu, preserved_memory_gb=gpu_memory_preservation)
@@ -630,8 +603,6 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
                 #print(current_pixels.shape)
                 #print(final_history_pixels.shape)
                 final_history_pixels = soft_append_bcthw(current_pixels, final_history_pixels, overlapped_frames)
-            
-
         
         # ループ１素材だけを取るために前１セクションフレームと、後ろ１セクションフレーム - 3を削除
         final_history_pixels = final_history_pixels[:,:,latent_window_size * 4:,:,:]

@@ -599,7 +599,7 @@ with block:
                     - **Reduce Progress File Output**:**（現在経過ファイルの出力とプレビューは表示されません）** 途中経過のファイルを同じ名前で上書き保存し、出力ファイル数を減らします。  
                             outputフォルダに system_preview.mp4 というファイルが生成され、プレビュー用に使用されます。  
                             ※動画生成中はこのファイルを開かないでください。  
-                    - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。。
+                    - **Without Preview**: 途中経過のプレビューは出力されません。入力画像や経過ファイルも保存されず、最終的な出力のみが行われます。そのため、最終アウトプットの生成速度がやや向上します。
                     """,)
                 #reduce_file_output = gr.Checkbox(label='Reduce File Output', value=False, info='途中経過のファイルの出力を減らします.ただし、outputフォルダにsystem_progress_preview.mp4というファイルが生成されます。これは、プレビューに使用する動画ファイルです。動画生成中は開かないでください。')
                 #without_preview = gr.Checkbox(label='Without Preview', value=False, info='途中経過の動画のプレビューが出力されません。その代わりに、最終アウトプットの出力が早くなります。')

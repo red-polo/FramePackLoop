@@ -646,7 +646,7 @@ quick_prompts = [[x] for x in quick_prompts]
 css = make_progress_bar_css()
 block = gr.Blocks(css=css).queue()
 with block:
-    gr.Markdown('# FramePackVideo2Loop')
+    gr.Markdown('# FramePackVideo2LoopVideo')
     
     with gr.Row():
         with gr.Column():

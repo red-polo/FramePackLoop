@@ -154,7 +154,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.3/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -279,7 +279,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.3/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -287,6 +287,99 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 ![FramePackLoopParameter](images/image4.jpg)
 
 次に、run_loopフォルダ内のrun_connect.batを実行すると、FramePackConnectが起動します。
+出力ファイルは、run_loopフォルダ内のoutputフォルダに保存されます。
+
+![FramePackLoopParameter](images/image8.jpg)
+
+アンインストールする際は、run_loopフォルダを削除してください。
+
+# FramePackVideo2LoopVideo(beta)
+
+**FramePackVideo2LoopVideo** は、lllyasviel氏の **lllyasviel/FramePack**で作成された動画を入力して、ループ化した動画を生成するソフトウェアです。
+
+FramePack-F1の登場により、動画からループ動画を作成したいというニーズが出てきたため作成しました。
+
+本ソフトウェアは開発中であり、仕様が変更になる可能性があります。
+
+また、本機能はFramePackの基本機能を応用した実験的な実装であり、将来的に使用できなくなる可能性がある点をあらかじめご理解ください。
+
+## FramePackVideo2LoopVideoの簡単な使い方
+![FramePackConnectUI](images/image11.jpg)
+
+FramePackで作成した、ループ化したい動画を用意します。  
+動画は以下の条件を満たす必要があります。
+* １秒以上であること。３秒以上が望ましいです。
+* FramePackで作成された動画であること
+
+動画をInputVideoにアプロードしてください。
+
+Promptを入れ、StartGenerationボタンを押すとループ動画の生成が開始されます。  
+outputフォルダに結合された動画のファイルが出力されます。
+
+※注意点  
+- 元の動画は殆どの部分が維持されますが、動画をつなげる過程で多少変わります。
+- 元の動画の後ろ数フレームはなくなる場合があります。
+- 元の動画の一番最初のフレームと一番最後ののフレームがあまり変わらないとループが上手く出来ない場合があります。
+
+## パラメータの説明
+
+FramePackLoopでは、本家FramePackに対して以下のパラメータが変更・追加されています。
+
+![FramePackLoopParameter](images/image12.jpg)
+
+- **Connection Video Length**  
+  接続動画のセクション数です。おおよそ１セクションで１秒です。
+
+- **Loop Num**  
+  出力するループ回数です。  
+  1ループ動画をコピーする方式なので、大きな数値にしても処理時間はそれほど増加しません。
+
+### 動画生成を繰り返したい人向けのパラメタ
+FramePackLoopと同様です。
+
+## 出力ファイル
+
+`output` フォルダに以下のファイルが出力されます。（その他のファイルは削除しても問題ありません）
+
+- `XXXX_{Seed}_1loop.mp4`  
+  - 1ループ分の動画です。動画編集ツールや配信ソフトでループ再生してご利用ください。
+  - ※使用する編集ソフトによってはフレーム落ちによって正常にループしない場合もあります（CapCutとOBS Studioでは正常動作を確認済み）。
+
+- `XXXX_{Seed}_loop_{Loop Num}.mp4`  
+  - 1ループ動画を連結した長尺の動画です。
+
+
+## インストールと実行方法
+
+インストール方法は本家FramePackと同様です。  
+環境構築後、以下のコマンドを実行してください。
+
+```bash
+python demo_gradio_video2loop.py
+```
+
+FramePackを既にインストール済みの方は、demo_gradio_video2loop.pyを本家のdemo_gradio.pyのあるフォルダにおいていただき、上のコマンドを実行すれば起動できます。  
+
+FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動作確認しました。
+コピーして使用される方はここまでのアップデートをお願いします。
+
+### 限定的なWindowsパッケージサポート
+
+限定的なサポートとなりますが、FramePackのWindowsパッケージをご利用の方向けに、簡単にFramePackVideo2LoopVideoを追加できる追加パッケージを用意しました。  
+※FramePackのWindows版がインストールされていることが前提となります。
+
+オリジナルの実装に依存した限定的なサポートとなりますので将来的にサポートできなくなる可能性がある点ごご理解ください。  
+また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
+
+
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
+
+
+ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
+
+![FramePackLoopParameter](images/image4.jpg)
+
+次に、run_loopフォルダ内のrun_video2loop.batを実行すると、FramePackVideo2LoopVideoが起動します。
 出力ファイルは、run_loopフォルダ内のoutputフォルダに保存されます。
 
 ![FramePackLoopParameter](images/image8.jpg)

@@ -1,8 +1,11 @@
 from diffusers_helper.hf_login import login
 
 import os
+import random
 
-os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
+hf_home = os.environ.get('HF_HOME')
+if hf_home is None:
+    os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
 
 import gradio as gr
 import torch
@@ -17,7 +20,7 @@ from PIL import Image
 from diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer
 from diffusers_helper.hunyuan import encode_prompt_conds, vae_decode, vae_encode, vae_decode_fake
-from diffusers_helper.utils import save_bcthw_as_mp4, crop_or_pad_yield_mask, soft_append_bcthw, resize_and_center_crop, state_dict_weighted_merge, state_dict_offset_merge, generate_timestamp
+from diffusers_helper.utils import save_bcthw_as_mp4, save_bcthw_as_png, crop_or_pad_yield_mask, soft_append_bcthw, resize_and_center_crop, state_dict_weighted_merge, state_dict_offset_merge, generate_timestamp
 from diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
 from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
 from diffusers_helper.memory import cpu, gpu, get_cuda_free_memory_gb, move_model_to_device_with_memory_preservation, offload_model_from_device_for_memory_preservation, fake_diffusers_current_device, DynamicSwapInstaller, unload_complete_models, load_model_as_complete
@@ -98,9 +101,23 @@ stream = AsyncStream()
 outputs_folder = './outputs/'
 os.makedirs(outputs_folder, exist_ok=True)
 
+def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+    for generation_count_index in range(generation_count):
+        if stream.input_queue.top() == 'end':
+            stream.output_queue.push(('end', None))
+            break
+        if generation_count != 1:
+            seed = random.randint(0, 2**32 - 1)
+        stream.output_queue.push(('generation count', f"Generation index:{generation_count_index + 1}"))
+        worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
+    stream.output_queue.push(('end', None))
 
 @torch.no_grad()
 def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+    if stream.input_queue.top() == 'end':
+        stream.output_queue.push(('end', None))
+        return
+    
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
 
@@ -141,7 +158,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         height, width = find_nearest_bucket(H, W, resolution=640)
         input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
 
-        Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}.png'))
+        Image.fromarray(input_image_np).save(os.path.join(outputs_folder, f'{job_id}_{seed}.png'))
 
         input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
         input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
@@ -256,7 +273,6 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
                 clean_latent_4x_indices=clean_latent_4x_indices,
                 callback=callback,
             )
-
             total_generated_latent_frames += int(generated_latents.shape[2])
             history_latents = torch.cat([history_latents, generated_latents.to(history_latents)], dim=2)
 
@@ -274,11 +290,10 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
 
                 current_pixels = vae_decode(real_history_latents[:, :, -section_latent_frames:], vae).cpu()
                 history_pixels = soft_append_bcthw(history_pixels, current_pixels, overlapped_frames)
-
             if not high_vram:
                 unload_complete_models()
 
-            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}.mp4')
+            output_filename = os.path.join(outputs_folder, f'{job_id}_{total_generated_latent_frames}_{seed}.mp4')
 
             save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
 
@@ -293,11 +308,11 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
                 text_encoder, text_encoder_2, image_encoder, vae, transformer
             )
 
-    stream.output_queue.push(('end', None))
+    #stream.output_queue.push(('end', None))
     return
 
 
-def process(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
+def process(input_image, prompt, n_prompt,generation_count, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf):
     global stream
     assert input_image is not None, 'No input image!'
 
@@ -305,7 +320,7 @@ def process(input_image, prompt, n_prompt, seed, total_second_length, latent_win
 
     stream = AsyncStream()
 
-    async_run(worker, input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
+    async_run(loop_worker, input_image, prompt, n_prompt,generation_count,  seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf)
 
     output_filename = None
 
@@ -355,6 +370,9 @@ with block:
                 use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
 
                 n_prompt = gr.Textbox(label="Negative Prompt", value="", visible=False)  # Not used
+                generation_count = gr.Slider(label="Generation Count", minimum=1, maximum=500, value=1, step=1,
+                                                  info='生成回数です。この値が2以上の場合、Seedはランダムな値が使用されます。')
+        
                 seed = gr.Number(label="Seed", value=31337, precision=0)
 
                 total_second_length = gr.Slider(label="Total Video Length (Seconds)", minimum=1, maximum=120, value=5, step=0.1)
@@ -377,7 +395,7 @@ with block:
 
     gr.HTML('<div style="text-align:center; margin-top:20px;">Share your results and find ideas at the <a href="https://x.com/search?q=framepack&f=live" target="_blank">FramePack Twitter (X) thread</a></div>')
 
-    ips = [input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf]
+    ips = [input_image, prompt, n_prompt,generation_count, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf]
     start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button])
     end_button.click(fn=end_process)
 

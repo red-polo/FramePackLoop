@@ -1,3 +1,8 @@
+# FramePack-1frame-batch-sample
+
+1frame生成をバッチ処理で行うサンプルです。
+sage-attentionまたはflush-attentionのインストールが必要なので、linux限定です。
+
 # FramePackLoop
 
 **FramePackLoop** は、lllyasviel氏の **lllyasviel/FramePack** をベースに、ループに特化した機能拡張を施したソフトウェアです。

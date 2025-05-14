@@ -169,6 +169,33 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 アンインストールする際は、run_loopフォルダを削除してください。
 
 
+## LoRAの使い方
+FramePackLoopではLoRAが使用出来できます。
+フォルダの中に`lora_setting.json`というファイルがありますので、こちらをFramePackLoop起動前に編集してください。
+
+![FramePackLoopParameter](images/image20.jpg)
+
+`lora_setting.json`の記入方法は`lora_setting_sample.json`を参照していただ出ればと思いますが、以下のように、LoRAファイルへのパスと適用スケールを記入して下さい。
+
+```
+[
+    {
+        "file":"./lora_models/lora1.safetensors",
+        "scale":1.0
+    }
+]
+```
+
+設定後、FramePackLoopを起動すると、起動のコンソールに以下のようにLoRAの読み込み状況が表示されますので、LoRAが正しく読み込めているか確認してください。
+
+![FramePackLoopParameter](images/image21.jpg)
+
+LoRAは起動中に動的に変更できませんので、LoRAを変更する際はお手数ですが再起動をお願いします。
+
+LoRAはMusubi Tuner(https://github.com/kohya-ss/musubi-tuner)で作成したFramePack用のLoRAを使用するのがベストですが、  
+HunyuanVideo用のLoRAも効果があるケースもあるようです。
+
+
 ## 少しだけ技術解説
 
 <span style="font-size: 200%; color: red;">重要なお知らせ(2025/05/02)</span>
@@ -396,4 +423,4 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 # 謝辞
 
 ありがとう、lllyasviel！
-
+ありがとう、kohya-ss！

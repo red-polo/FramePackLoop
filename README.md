@@ -170,14 +170,15 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 
 
 ## LoRAの使い方
-FramePackLoopではLoRAが使用出来できます。
-フォルダの中に`lora_setting.json`というファイルがありますので、こちらをFramePackLoop起動前に編集してください。
+FramePackLoopではLoRAを使用できます。  
+フォルダ内にある `lora_setting.json` ファイルを、**FramePackLoopの起動前に編集**してください。
+
 
 ![FramePackLoopParameter](images/image20.jpg)
 
-`lora_setting.json`の記入方法は`lora_setting_sample.json`を参照していただ出ればと思いますが、以下のように、LoRAファイルへのパスと適用スケールを記入して下さい。
+記入内容は`lora_setting_sample.json` を参考にしてください。例えば以下のように、LoRAファイルへのパスと適用スケールを記入します。
 
-```
+```json
 [
     {
         "file":"./lora_models/lora1.safetensors",
@@ -186,14 +187,16 @@ FramePackLoopではLoRAが使用出来できます。
 ]
 ```
 
-設定後、FramePackLoopを起動すると、起動のコンソールに以下のようにLoRAの読み込み状況が表示されますので、LoRAが正しく読み込めているか確認してください。
+設定後にFramePackLoopを起動すると、コンソール上に以下のようなLoRAの読み込み状況が表示されます。正しくLoRAが読み込まれているかをご確認ください。
+
 
 ![FramePackLoopParameter](images/image21.jpg)
 
-LoRAは起動中に動的に変更できませんので、LoRAを変更する際はお手数ですが再起動をお願いします。
+注意：LoRAは起動中に動的に変更することはできません。LoRAを変更したい場合は、お手数ですが一度アプリケーションを再起動してください。
 
-LoRAは[Musubi Tuner](https://github.com/kohya-ss/musubi-tuner)で作成したFramePack用のLoRAを使用するのがベストですが、  
-HunyuanVideo用のLoRAも効果があるケースもあるようです。
+
+LoRAは[Musubi Tuner](https://github.com/kohya-ss/musubi-tuner)で作成されたFramePack用のLoRAを使用するのが最も効果的ですが、  
+HunyuanVideo用のLoRAも効果が得られるケースがあるようです。
 
 
 ## 少しだけ技術解説

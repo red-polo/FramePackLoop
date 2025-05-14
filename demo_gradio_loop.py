@@ -16,6 +16,7 @@ import numpy as np
 import argparse
 import math
 import re
+import gc
 
 from PIL import Image
 from diffusers import AutoencoderKLHunyuanVideo
@@ -32,6 +33,29 @@ from diffusers_helper.clip_vision import hf_clip_vision_encode
 from diffusers_helper.bucket_tools import find_nearest_bucket
 
 import torchvision
+
+
+
+# GPU使用に必要なモジュールのインポートを試みる（可能な場合）
+try:
+    from utils.lora_utils import merge_lora_to_state_dict
+    from utils.fp8_optimization_utils import optimize_state_dict_with_fp8, apply_fp8_monkey_patch
+    print("LoRAとFP8最適化モジュールを正常にインポートしました")
+except ImportError as e:
+    print(f"一部のモジュールのインポートに失敗しました: {e}")
+    # ダミー関数を定義
+    def merge_lora_to_state_dict(state_dict, lora_file, lora_multiplier, device=None):
+        print("Warning: LoRA適用機能が利用できません")
+        return state_dict
+        
+    def optimize_state_dict_with_fp8(state_dict, device, target_keys, exclude_keys, move_to_device=False):
+        print("Warning: FP8最適化機能が利用できません")
+        return state_dict
+        
+    def apply_fp8_monkey_patch(model, state_dict, use_scaled_mm=False):
+        print("Warning: FP8 monkey patch機能が利用できません")
+        pass
+
 
 def save_bcthw_as_png(x, output_filename):
     # UIと合わせる
@@ -111,6 +135,27 @@ stream = AsyncStream()
 
 outputs_folder = './outputs/'
 os.makedirs(outputs_folder, exist_ok=True)
+
+import json
+if os.path.exists("./lora_setting.json"):
+    with open('lora_setting.json', 'r', encoding='utf-8') as f:
+        lora_settings = json.load(f)
+
+
+    for lora_setting in lora_settings:
+        try:
+            lora_file = lora_setting["file"]
+            scale = lora_setting["scale"]
+            print(f"LoRAファイル {os.path.basename(lora_file)} をマージします...")
+            state_dict = transformer.state_dict()
+            state_dict = merge_lora_to_state_dict(state_dict, lora_file, scale, device=gpu)
+                        
+            info = transformer.load_state_dict(state_dict, strict=True, assign=True)
+            print(f"LoRAと/またはFP8最適化を適用しました: {info}")
+        except Exception as e:
+            print(f"LoRA適用中にエラーが発生しました: {e}")
+            print(f"{os.path.basename(lora_file)}に問題がありそうです。lora_setting.jsonを見直してください。")
+            exit()
 
 def loop_worker(input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, reduce_file_output, without_preview, output_latent_image, latent_input_file):
     for generation_count_index in range(generation_count):
@@ -586,7 +631,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
             desc = f'Now making 1 loop decoding'
             stream.output_queue.push(('progress', (None, desc, make_progress_bar_html(percentage, hint))))
 
-            section_latent_frames = (latent_window_size * 2) if i == (MAX-1) else (latent_window_size * 2)
+            section_latent_frames = (latent_window_size * 2) 
             if final_history_pixels is None:
                 #if pixel_map.get(latent_index) is None:
                 final_history_pixels = vae_decode(final_latents[:,:,latent_offset:latent_offset + latent_window_size,:,:], vae).cpu()

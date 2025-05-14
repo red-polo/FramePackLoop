@@ -192,7 +192,7 @@ FramePackLoopではLoRAが使用出来できます。
 
 LoRAは起動中に動的に変更できませんので、LoRAを変更する際はお手数ですが再起動をお願いします。
 
-LoRAはMusubi Tuner(https://github.com/kohya-ss/musubi-tuner)で作成したFramePack用のLoRAを使用するのがベストですが、  
+LoRAは[Musubi Tuner](https://github.com/kohya-ss/musubi-tuner)で作成したFramePack用のLoRAを使用するのがベストですが、  
 HunyuanVideo用のLoRAも効果があるケースもあるようです。
 
 

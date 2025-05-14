@@ -154,7 +154,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -306,7 +306,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -399,7 +399,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -416,8 +416,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 
 # 今後の予定
 
-将来的にLoRA対応やキーフレーム対応を行う可能性もありますが、  
-現時点では対応は未定です。
+未定です。
 
 
 # 謝辞

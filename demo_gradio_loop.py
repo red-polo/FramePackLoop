@@ -34,12 +34,10 @@ from diffusers_helper.bucket_tools import find_nearest_bucket
 
 import torchvision
 
-
-
 # GPU使用に必要なモジュールのインポートを試みる（可能な場合）
 try:
-    from utils.lora_utils import merge_lora_to_state_dict
-    from utils.fp8_optimization_utils import optimize_state_dict_with_fp8, apply_fp8_monkey_patch
+    from third_party.lora_utils import merge_lora_to_state_dict
+    from third_party.fp8_optimization_utils import optimize_state_dict_with_fp8, apply_fp8_monkey_patch
     print("LoRAとFP8最適化モジュールを正常にインポートしました")
 except ImportError as e:
     print(f"一部のモジュールのインポートに失敗しました: {e}")

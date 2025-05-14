@@ -154,7 +154,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -167,6 +167,33 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 ![FramePackLoopParameter](images/image8.jpg)
 
 アンインストールする際は、run_loopフォルダを削除してください。
+
+
+## LoRAの使い方
+FramePackLoopではLoRAが使用出来できます。
+フォルダの中に`lora_setting.json`というファイルがありますので、こちらをFramePackLoop起動前に編集してください。
+
+![FramePackLoopParameter](images/image20.jpg)
+
+`lora_setting.json`の記入方法は`lora_setting_sample.json`を参照していただ出ればと思いますが、以下のように、LoRAファイルへのパスと適用スケールを記入して下さい。
+
+```
+[
+    {
+        "file":"./lora_models/lora1.safetensors",
+        "scale":1.0
+    }
+]
+```
+
+設定後、FramePackLoopを起動すると、起動のコンソールに以下のようにLoRAの読み込み状況が表示されますので、LoRAが正しく読み込めているか確認してください。
+
+![FramePackLoopParameter](images/image21.jpg)
+
+LoRAは起動中に動的に変更できませんので、LoRAを変更する際はお手数ですが再起動をお願いします。
+
+LoRAはMusubi Tuner(https://github.com/kohya-ss/musubi-tuner)で作成したFramePack用のLoRAを使用するのがベストですが、  
+HunyuanVideo用のLoRAも効果があるケースもあるようです。
 
 
 ## 少しだけ技術解説
@@ -279,7 +306,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -372,7 +399,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.4/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -389,11 +416,10 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 
 # 今後の予定
 
-将来的にLoRA対応やキーフレーム対応を行う可能性もありますが、  
-現時点では対応は未定です。
+未定です。
 
 
 # 謝辞
 
 ありがとう、lllyasviel！
-
+ありがとう、kohya-ss！

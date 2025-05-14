@@ -1,0 +1,10 @@
+[
+    {
+        "file":"/lora file path/lora1.safetensors",
+        "scale":1.0
+    },
+    {
+        "file":"/lora file path/lora2.safetensors",
+        "scale":1.0
+    },
+]

@@ -64,6 +64,22 @@ def save_bcthw_as_png(x, output_filename):
     torchvision.io.write_png(x, output_filename)
     return output_filename
 
+def save_bcthw_as_mp4_for_preview(x, output_filename, fps=10, crf=0):
+    b, c, t, h, w = x.shape
+
+    per_row = b
+    for p in [6, 5, 4, 3, 2]:
+        if b % p == 0:
+            per_row = p
+            break
+
+    os.makedirs(os.path.dirname(os.path.abspath(os.path.realpath(output_filename))), exist_ok=True)
+    x = x.detach().cpu().to(torch.uint8)
+    x = einops.rearrange(x, '(m n) c t h w -> t (m h) (n w) c', n=per_row)
+    torchvision.io.write_video(output_filename, x, fps=fps, video_codec='libx264', options={'crf': str(int(crf))})
+    return x
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--share', action='store_true')
 parser.add_argument("--server", type=str, default='0.0.0.0')
@@ -135,6 +151,18 @@ outputs_folder = './outputs/'
 os.makedirs(outputs_folder, exist_ok=True)
 
 import json
+
+if os.path.exists("./system_setting.json"):
+    with open('system_setting.json', 'r', encoding='utf-8') as f:
+        system_setting = json.load(f)
+
+video_preview = False
+if system_setting["preview"]["type"] == "video":
+    video_preview = True
+
+preview_height = system_setting["preview"]["height"]
+
+
 if os.path.exists("./lora_setting.json"):
     with open('lora_setting.json', 'r', encoding='utf-8') as f:
         lora_settings = json.load(f)
@@ -320,9 +348,16 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
                 def callback(d):
                     preview = d['denoised']
                     preview = vae_decode_fake(preview)
-
-                    preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
-                    preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
+                    if video_preview:
+                        preview = (preview * 255.0).detach().cpu().clip(0, 255)
+                        preview_filename = os.path.join(outputs_folder, f'preview.mp4')
+                        print(preview_filename)
+                        save_bcthw_as_mp4_for_preview(preview, preview_filename, fps=9, crf=0)
+                        return_obj = preview_filename
+                    else:
+                        preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
+                        preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
+                        return_obj = preview
 
                     if stream.input_queue.top() == 'end':
                         stream.output_queue.push(('end', None))
@@ -333,7 +368,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
                     hint = f'Sampling {current_step}/{steps}'
                     desc = f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, Video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30) :.2f} seconds (FPS-30). The video is being extended now ...'
                     
-                    stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
+                    stream.output_queue.push(('progress', (return_obj, desc, make_progress_bar_html(percentage, hint))))
                     return
 
                 generated_latents = sample_hunyuan(
@@ -476,8 +511,17 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
                     preview = d['denoised']
                     preview = vae_decode_fake(preview)
 
-                    preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
-                    preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
+                    if video_preview:
+
+                        preview = (preview * 255.0).detach().cpu().clip(0, 255)
+                        preview_filename = os.path.join(outputs_folder, f'preview.mp4')
+                        print(preview_filename)
+                        save_bcthw_as_mp4_for_preview(preview, preview_filename, fps=9, crf=0)
+                        return_obj = preview_filename
+                    else:
+                        preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
+                        preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
+                        return_obj = preview
 
                     if stream.input_queue.top() == 'end':
                         stream.output_queue.push(('end', None))
@@ -487,7 +531,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, connection_
                     percentage = int(100.0 * current_step / steps)
                     hint = f'Sampling {current_step}/{steps}'
                     desc = f'Now making connection video.'
-                    stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, hint))))
+                    stream.output_queue.push(('progress', (return_obj, desc, make_progress_bar_html(percentage, hint))))
                     return
 
                 generated_latents = sample_hunyuan(
@@ -826,7 +870,12 @@ with block:
                 mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1, info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs. ")
 
         with gr.Column():
-            preview_image = gr.Image(label="Next Latents", height=200, visible=False)
+            if video_preview:
+                preview = gr.Video(label="Latent Frames", autoplay=True, show_share_button=False, height=preview_height, loop=True,visible=False)
+            else:
+                preview = gr.Image(label="Next Latents", height=preview_height, visible=False)
+            
+
             result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=512, loop=True)
             gr.Markdown('Note that the ending actions will be generated before the starting actions due to the inverted sampling. If the starting action is not in the video, you just need to wait, and it will be generated later.')
             progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
@@ -834,7 +883,7 @@ with block:
             progress_gcounter = gr.Markdown('', elem_classes='no-generating-animation')
 
     ips = [input_image, prompt, n_prompt, generation_count, seed, total_second_length, connection_second_length,padding_second_length, loop_num, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, progress_preview_option, file_input]
-    start_button.click(fn=process, inputs=ips, outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button, progress_gcounter])
+    start_button.click(fn=process, inputs=ips, outputs=[result_video, preview, progress_desc, progress_bar, start_button, end_button, progress_gcounter])
     end_button.click(fn=end_process)
 
 

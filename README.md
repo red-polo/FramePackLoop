@@ -154,7 +154,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.6/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -197,6 +197,20 @@ FramePackLoopではLoRAを使用できます。
 
 LoRAは[Musubi Tuner](https://github.com/kohya-ss/musubi-tuner)で作成されたFramePack用のLoRAを使用するのが最も効果的ですが、  
 HunyuanVideo用のLoRAも効果が得られるケースがあるようです。
+
+## システムオプション
+### Latentの動画化
+system_setting.jsonのpreview.typeを"video"にすることでnext latentの表示を動画にすることができます。
+outputフォルダ中に"preview.mp4"というファイルが生成されますが、動画生成処理実行中は開かないで下さい。開いた場合は生成がエラーになる可能性があります。
+Next Latentの表示を画像から動画にします。  
+```
+{
+    "preview":{
+        "type":"video",
+        "height":200
+    } 
+}
+```
 
 
 ## 少しだけ技術解説
@@ -309,7 +323,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.6/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
@@ -402,7 +416,7 @@ FramePackの2025/04/28のmainブランチ（コミット番号 6da55e8）で動�
 また、オリジナルパッケージには影響を与えない設計を心がけていますが、万が一問題が発生した場合はご容赦ください。
 
 
-[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.5/run_loop.zip)
+[>>> 追加パッケージをダウンロードするにはここをクリックしてください <<<](https://github.com/red-polo/FramePackLoop/releases/download/windows-v1.6/run_loop.zip)
 
 
 ダウンロードしたファイルに入っているrun_loopフォルダを、FramePackのWindows版インストールフォルダに、下図のように配置してください。
